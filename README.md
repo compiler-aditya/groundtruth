@@ -2,7 +2,7 @@
 
 **An agent that checks a construction site against its design package, with evidence, using Meta's models.**
 
-**Live demo: https://groundtruth-mu-gules.vercel.app.** Watch the agent work through the demo package step by step, browse every finding with its evidence and draft, or try your own photos.
+**Live demo: https://groundtruth-mu-gules.vercel.app.** Watch the agent work through the demo package step by step (live, or as a recorded run), browse every finding with its evidence and draft, or try your own photos. Uploads need the access code given in the hackathon submission.
 
 On a big site (a solar farm, a substation, a plant) commissioning means proving that what was built matches thousands of lines of design: quantities, equipment schedules, drawing revisions. Today that is people walking the site with clipboards, and progress reports that are taken on trust. Mistakes surface at handover, when they are expensive.
 
