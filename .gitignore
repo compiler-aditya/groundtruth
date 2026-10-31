@@ -10,3 +10,11 @@ samples/real/nameplates/
 samples/real/drawing/
 samples/real/walk/clips/
 samples/real/walk/real_walk.mp4
+
+# Web build outputs (contain third-party sample media)
+public/thumbs/
+public/media/
+public/replays/
+dist/
+.vercel/
+.playwright-mcp/

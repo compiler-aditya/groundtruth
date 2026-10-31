@@ -28,14 +28,20 @@ class Item:
     path: Path
     area: str = ""
     label: str = ""
+    sha256: str = ""  # declared in project.json when the file itself is not shipped (the hosted demo)
 
     def public(self) -> dict:
         return {"id": self.id, "type": self.type, "area": self.area, "label": self.label}
 
     def fingerprint(self) -> str:
-        """Identifies the file's content for the result cache without hashing large videos."""
-        stat = self.path.stat()
-        return hashlib.sha256(f"{self.path.name}:{stat.st_size}:{int(stat.st_mtime)}".encode()).hexdigest()[:16]
+        """The file's content hash, for the result cache (the declared one if the file is not present)."""
+        if not self.sha256:
+            digest = hashlib.sha256()
+            with open(self.path, "rb") as f:
+                for block in iter(lambda: f.read(1 << 20), b""):
+                    digest.update(block)
+            self.sha256 = digest.hexdigest()
+        return self.sha256[:16]
 
 
 @dataclass
@@ -72,14 +78,17 @@ class Package:
             site_notes=(root / design["site_notes"]).read_text() if design.get("site_notes") else "",
         )
         for d in spec.get("drawings", []):
-            package.items[d["id"]] = Item(d["id"], "drawing_sheet", (root / d["path"]).resolve(), "", d.get("label", ""))
+            package.items[d["id"]] = Item(d["id"], "drawing_sheet", (root / d["path"]).resolve(), "", d.get("label", ""),
+                                          d.get("sha256", ""))
         for c in spec.get("captures", []):
-            package.items[c["id"]] = Item(c["id"], c["type"], (root / c["path"]).resolve(), c.get("area", ""), c.get("label", ""))
+            package.items[c["id"]] = Item(c["id"], c["type"], (root / c["path"]).resolve(), c.get("area", ""),
+                                          c.get("label", ""), c.get("sha256", ""))
         package.validate()
         return package
 
     def validate(self) -> None:
-        missing = [f"{i.id} ({i.path})" for i in self.items.values() if not i.path.exists()]
+        # A file may be absent only when its hash is declared: its checks then come from the result cache.
+        missing = [f"{i.id} ({i.path})" for i in self.items.values() if not i.path.exists() and not i.sha256]
         if missing:
             raise FileNotFoundError("Package files not found (run day1/fetch_real_samples.py for samples/real): "
                                     + ", ".join(missing))

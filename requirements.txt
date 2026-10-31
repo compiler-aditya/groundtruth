@@ -4,3 +4,6 @@ pillow
 pymupdf
 pydantic>=2
 python-dotenv
+fastapi
+python-multipart
+uvicorn

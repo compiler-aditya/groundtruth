@@ -126,12 +126,13 @@ def _area_notes(notes: str, area: str) -> str:
 
 class Toolbox:
     def __init__(self, package: Package, run_dir: Path, cache_dir: Path, *, use_cache: bool = True,
-                 log: Callable[[str], None] = print) -> None:
+                 seed_cache: Path | None = None, log: Callable[[str], None] = print) -> None:
         self.package = package
         self.run_dir = run_dir
         self.evidence_dir = run_dir / "evidence"
         self.evidence_dir.mkdir(parents=True, exist_ok=True)
         self.cache_dir = cache_dir
+        self.seed_cache = seed_cache  # read-only results shipped with a deployment, checked after cache_dir
         self.use_cache = use_cache
         self.log = log
         self.results: dict[str, dict] = {}
@@ -145,6 +146,7 @@ class Toolbox:
         self._lock = threading.Lock()
         self._key_locks: dict[str, threading.Lock] = {}
         self._computed: set[str] = set()
+        self.cache_keys_used: set[str] = set()  # lets a deployment ship only the cached results a run needed
 
     # ---------- plumbing ----------
 
@@ -170,9 +172,12 @@ class Toolbox:
         with self._lock:
             key_lock = self._key_locks.setdefault(key, threading.Lock())
         with key_lock:  # parallel calls needing the same result (e.g. a plate read) compute it once
-            if (self.use_cache or key in self._computed) and (entry / "result.json").exists():
-                saved = json.loads((entry / "result.json").read_text())
-                return saved["data"], [(entry / f, c) for f, c in saved["files"]], saved["cost"], True
+            seeded = self.seed_cache / key if self.seed_cache else None
+            for found in (entry, seeded):
+                if found and (self.use_cache or key in self._computed) and (found / "result.json").exists():
+                    saved = json.loads((found / "result.json").read_text())
+                    self.cache_keys_used.add(key)
+                    return saved["data"], [(found / f, c) for f, c in saved["files"]], saved["cost"], True
             work = entry.with_name(key + ".tmp")
             shutil.rmtree(work, ignore_errors=True)
             work.mkdir(parents=True)
@@ -188,6 +193,7 @@ class Toolbox:
             work.rename(entry)
             # Within one run a result is computed once even with --no-cache.
             self._computed.add(key)
+            self.cache_keys_used.add(key)
             return data, [(entry / f, c) for f, c in names], cost, False
 
     def _record(self, tool: str, args: dict, data: dict, files: list, cost: dict, cached: bool, seconds: float) -> dict:

@@ -1,7 +1,8 @@
 """Compares a run's findings with the package's expected_findings.json (the answer key for a demo package).
 
 References in the answer key: a quantity item ID (Q-A1), a schedule tag (P-101-M), a register sheet number
-(E-101), or a walkthrough claim as "<capture> @ <seconds> s" (matched within 3 s).
+(E-101), or a walkthrough claim as "<capture> @ <seconds> s", matched within 5 s: Spark Open timestamps a
+claim anywhere in the few seconds it takes to say.
 """
 
 import re
@@ -14,7 +15,7 @@ def _matches(finding: dict, results: dict, ref: str) -> bool:
         capture, _, at = ref.partition(" @ ")
         seconds = float(re.sub(r"[^0-9.]", "", at))
         return (result["tool"] == "check_walkthrough" and args["capture_id"] == capture and finding["claim_index"] >= 0
-                and abs(data["claims"][finding["claim_index"]]["t_s"] - seconds) <= 3)
+                and abs(data["claims"][finding["claim_index"]]["t_s"] - seconds) <= 5)
     if ref in (args.get("item_id"), args.get("schedule_tag"), args.get("drawing_id")):
         return True
     return result["tool"] == "check_drawing_register" and any(

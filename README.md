@@ -2,6 +2,8 @@
 
 **An agent that checks a construction site against its design package, with evidence, using Meta's models.**
 
+**Live demo: https://groundtruth-mu-gules.vercel.app.** Watch the agent work through the demo package step by step, browse every finding with its evidence and draft, or try your own photos.
+
 On a big site (a solar farm, a substation, a plant) commissioning means proving that what was built matches thousands of lines of design: quantities, equipment schedules, drawing revisions. Today that is people walking the site with clipboards, and progress reports that are taken on trust. Mistakes surface at handover, when they are expensive.
 
 GroundTruth takes the design package and the captures a site already produces (drone stills, nameplate photos, a narrated phone walkthrough). A Muse Wonder agent works out which capture proves which design item and runs the checks with SAM 3.1, Muse Spark 1.3 and Muse Spark Open. Code decides each verdict from the measurements. Every failure becomes a finding linked to its evidence, and Muse Spark 1.3 drafts the paperwork: a Non-Conformance Report (NCR) for wrong work, a Request for Information (RFI) when the design is unclear, and an observation report when what someone reported is contradicted by the evidence.
@@ -29,6 +31,24 @@ open out/runs/demo-solar/latest/report.html
 ```
 
 Needs ffmpeg (`brew install ffmpeg`). Results are cached by tool, arguments and file, so a second run only pays for the agent and the drafts; `--no-cache` recomputes everything.
+
+## Web app
+
+```bash
+.venv/bin/python scripts/build_web.py assets      # thumbnails and a 720p copy of the walk (from the fetched samples)
+.venv/bin/python scripts/build_web.py record      # saves a real run as the recorded run (and lists the cache it used)
+.venv/bin/uvicorn app:app --port 8000             # http://localhost:8000
+```
+
+[app.py](app.py) streams each run as newline-delimited JSON ([gt/live.py](gt/live.py)). Agent notes, tool calls, results with their evidence images, findings and drafts all arrive in one response, so it runs on a serverless host. The UI is plain HTML, CSS and JS in [public/](public).
+- **Live runs** of the demo use Muse Wonder in real time, with measurements served from a cache shipped with the deployment: about a minute and $0.40.
+- **The recorded run** plays back a real run with no API calls.
+- **Uploads** are photos and drawings, shrunk in the browser to fit Vercel's 4.5 MB request limit.
+- **Guards:** per-instance limits on concurrent runs and runs per visitor per hour, file count and size limits, and an optional `GT_UPLOAD_CODE`.
+
+Deploy: `scripts/build_web.py dist` assembles `dist/`: the app, the demo package with every capture's hash, the images, only the cache entries the demo needs, and no `.env`. Then run `vercel deploy dist --prod` and set `MODEL_API_KEY` in the Vercel project to turn on live runs.
+
+## Tests
 
 Offline tests, with every model call faked (no API key needed; `test_agent.py` needs the fetched samples):
 
@@ -82,6 +102,8 @@ Quantity methods: `objects` (SAM count), `tables` (SAM count of whole tables), `
 | Path | What |
 |---|---|
 | [groundtruth.py](groundtruth.py) | `run` and `evaluate` commands |
+| [app.py](app.py), [gt/live.py](gt/live.py), [public/](public), [scripts/build_web.py](scripts/build_web.py) | The web app, its event stream, the UI, and the asset/replay/deploy builder |
+| [gt/pipeline.py](gt/pipeline.py) | One run: agent, drafts, report (shared by the CLI and the web app) |
 | [gt/agent.py](gt/agent.py) | Muse Wonder tool-calling loop (Responses API, stateless replay, parallel tool calls) |
 | [gt/tools.py](gt/tools.py) | The tools, verdict rules, evidence store and result cache |
 | [gt/drafts.py](gt/drafts.py), [gt/report.py](gt/report.py), [gt/evaluate.py](gt/evaluate.py) | NCR/RFI/OBS drafting with the grounding check, the HTML report, scoring against an answer key |

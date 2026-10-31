@@ -12,6 +12,7 @@ one that fails twice is replaced by a plain template built from the facts, and t
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
+from typing import Callable
 
 from .config import SPARK, meta_client
 from .package import Package
@@ -101,7 +102,7 @@ SYSTEM = (
 
 
 def draft_all(package: Package, findings: list[dict], results: dict, evidence: dict, *, model: str = SPARK,
-              effort: str = "medium") -> tuple[list[dict], Usage]:
+              effort: str = "medium", on_draft: Callable[[dict], None] = lambda draft: None) -> tuple[list[dict], Usage]:
     client = meta_client()
     usage = Usage()
     counters: dict[str, int] = {}
@@ -132,10 +133,14 @@ def draft_all(package: Package, findings: list[dict], results: dict, evidence: d
             draft = structured(client, content, "draft", DRAFT_SCHEMA, usage=usage, effort=effort, model=model,
                                instructions=SYSTEM)
             if grounded(draft, subjects, must):
-                return {"finding_id": finding["id"], "number": number, "document": name, "drafted_by": model,
+                done = {"finding_id": finding["id"], "number": number, "document": name, "drafted_by": model,
                         "attempts": attempt, **draft}
-        return {"finding_id": finding["id"], "number": number, "document": name, "attempts": 2,
+                on_draft(done)
+                return done
+        done = {"finding_id": finding["id"], "number": number, "document": name, "attempts": 2,
                 "drafted_by": f"template ({model} failed the grounding check twice)", **template(finding, result, design, evidence)}
+        on_draft(done)
+        return done
 
     with ThreadPoolExecutor(max_workers=6) as pool:
         drafts = list(pool.map(one, jobs))

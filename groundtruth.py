@@ -12,17 +12,13 @@ that did not pass, and Muse Spark 1.3 drafts the NCR, RFI or observation report 
 import argparse
 import json
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 
-from gt.agent import run_agent
-from gt.config import OUT, PRICE, SPARK, WONDER
-from gt.drafts import draft_all
+from gt.config import OUT, SPARK, WONDER
 from gt.evaluate import evaluate
 from gt.package import Package
-from gt.report import timestamp, write
-from gt.tools import Toolbox
+from gt.pipeline import run_package
 
 
 def print_evaluation(result: dict) -> None:
@@ -40,41 +36,26 @@ def print_evaluation(result: dict) -> None:
 
 def cmd_run(args: argparse.Namespace) -> None:
     package = Package.load(Path(args.project))
-    started = time.time()
     run_dir = OUT / "runs" / package.root.name / datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_dir.mkdir(parents=True)
     print(f"{package.name}\n{len(package.items)} captures/drawings, {len(package.quantities)} quantity items, "
           f"{len(package.schedule)} schedule rows, {len(package.register)} register rows -> {run_dir}\n")
-    toolbox = Toolbox(package, run_dir, OUT / "cache", use_cache=not args.no_cache)
-    agent = run_agent(package, toolbox, model=args.model, effort=args.effort, max_turns=args.max_turns)
-    drafts, draft_usage = ([], None) if args.no_drafts else draft_all(
-        package, toolbox.findings, toolbox.results, toolbox.evidence, model=args.draft_model)
-    sam_usd = toolbox.cost["sam_requests"] * PRICE["sam_per_image"]
-    drafts_usd = draft_usage.cost if draft_usage else 0.0
-    cost = {**toolbox.cost, "sam_usd": sam_usd, "agent_usd": agent["cost_usd"], "drafts_usd": drafts_usd}
-    cost["total_usd"] = round(cost["spark_usd"] + sam_usd + cost["baseten_usd"] + agent["cost_usd"] + drafts_usd, 4)
-    report = {
-        "project": {"name": package.name, "description": package.description, "root": str(package.root)},
-        "finished_at": timestamp(), "seconds": round(time.time() - started, 1), "summary": toolbox.summary,
-        "findings": toolbox.findings, "drafts": drafts, "results": toolbox.results, "evidence": toolbox.evidence,
-        "agent": agent, "cost": cost,
-    }
-    expected_path = package.root / "expected_findings.json"
-    if expected_path.exists():
-        report["evaluation"] = evaluate(report, json.loads(expected_path.read_text()))
-    path = write(run_dir, report)
+    report, toolbox = run_package(package, run_dir, OUT / "cache", use_cache=not args.no_cache, model=args.model,
+                                  effort=args.effort, max_turns=args.max_turns, draft_model=args.draft_model,
+                                  drafts=not args.no_drafts)
     latest = run_dir.parent / "latest"
     latest.unlink(missing_ok=True)
     latest.symlink_to(run_dir.name)
+    (run_dir / "cache_keys.json").write_text(json.dumps(sorted(toolbox.cache_keys_used)))
 
-    print(f"\n{len(toolbox.findings)} finding(s):")
-    numbers = {d["finding_id"]: d["number"] for d in drafts}
-    for f in toolbox.findings:
+    print(f"\n{len(report['findings'])} finding(s):")
+    numbers = {d["finding_id"]: d["number"] for d in report["drafts"]}
+    for f in report["findings"]:
         print(f"  {numbers.get(f['id'], f['id']):<8} {f['kind']:<22} {f['title']}")
     if "evaluation" in report:
         print_evaluation(report["evaluation"])
-    print(f"\n{report['seconds']:.0f}s, ~${cost['total_usd']:.2f} (agent ${agent['cost_usd']:.2f}, drafts ${drafts_usd:.2f}, "
-          f"checks ${cost['spark_usd'] + sam_usd + cost['baseten_usd']:.2f})\nReport: {path}")
+    cost = report["cost"]
+    print(f"\n{report['seconds']:.0f}s, ~${cost['total_usd']:.2f} (agent ${cost['agent_usd']:.2f}, drafts ${cost['drafts_usd']:.2f}, "
+          f"checks ${cost['spark_usd'] + cost['sam_usd'] + cost['baseten_usd']:.2f})\nReport: {run_dir / 'report.html'}")
 
 
 def cmd_evaluate(args: argparse.Namespace) -> None:

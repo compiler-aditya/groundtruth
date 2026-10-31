@@ -64,7 +64,9 @@ def _brief(output: dict) -> str:
 
 
 def run_agent(package: Package, toolbox: Toolbox, *, model: str = WONDER, effort: str = "medium",
-              max_turns: int = 30, log: Callable[[str], None] = print) -> dict:
+              max_turns: int = 30, log: Callable[[str], None] = print,
+              on_event: Callable[[dict], None] = lambda event: None) -> dict:
+    """on_event gets note, turn, tool_start and tool_end events as they happen (the web app streams them)."""
     client = meta_client()
     usage = Usage(PRICE["wonder_in_per_m"], PRICE["wonder_out_per_m"]) if model == WONDER else Usage()
     conversation: list = [{"role": "user", "content": package.overview() + "\n\nVerify this package against the captures."}]
@@ -83,8 +85,11 @@ def run_agent(package: Package, toolbox: Toolbox, *, model: str = WONDER, effort
             if item.type == "message" and _text(item):
                 trace.append({"turn": turn, "type": "note", "text": _text(item)})
                 log(f"  [{turn}] agent: {_text(item)[:300]}")
+                on_event({"type": "note", "turn": turn, "text": _text(item)})
         calls = [item for item in response.output if item.type == "function_call"]
         log(f"  [{turn}] {len(calls)} tool call(s) after {time.time() - t0:.1f}s of thinking")
+        on_event({"type": "turn", "turn": turn, "calls": len(calls), "thinking_s": round(time.time() - t0, 1),
+                  "agent_cost_usd": round(usage.cost, 4)})
         if not calls:
             if toolbox.finished:
                 break
@@ -94,7 +99,12 @@ def run_agent(package: Package, toolbox: Toolbox, *, model: str = WONDER, effort
         def run(call):
             t = time.time()
             args = json.loads(call.arguments or "{}")
-            return args, toolbox.call(call.name, args), time.time() - t
+            on_event({"type": "tool_start", "turn": turn, "call_id": call.call_id, "tool": call.name, "args": args})
+            output = toolbox.call(call.name, args)
+            cached = toolbox.results.get(output.get("result_id", ""), {}).get("cached", False)
+            on_event({"type": "tool_end", "turn": turn, "call_id": call.call_id, "tool": call.name, "args": args,
+                      "output": output, "brief": _brief(output), "seconds": round(time.time() - t, 1), "cached": cached})
+            return args, output, time.time() - t
 
         with ThreadPoolExecutor(max_workers=8) as pool:
             outputs = list(pool.map(run, calls))
