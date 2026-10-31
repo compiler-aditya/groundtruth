@@ -1,0 +1,8 @@
+tag,equipment_type,manufacturer,model_number,voltage,power,phase,frequency_hz
+malmbergs_motor,three-phase induction motor,Malmbergs,MS 711-2,230/400 V,0.55 kW,3,50
+aeg_dfig_motor,six-phase motor,AEG,S 6472/4F,2x1100 V,4700 kW,6,100
+abb_motor,asynchronous machine,ABB,QWGy 800 xa4,10000 V,5000 kW,3,50
+induction_motor_angled,three-phase induction motor,Loher,A 160 LA-V6/4,400 V,4.8/14 kW,3,50
+teco_motor_worn,three-phase induction motor,TECO,AEHF,380 V,2.2 kW,3,60
+trafo_union_cast_resin_transformer,cast resin transformer,Trafo-Union,,20000/400 V,400 kVA,3,50
+current_transformer,current transformer,Zhejiang Sanai Transformer,LZZBJ-11,12/28/75 kV,5 VA,,50

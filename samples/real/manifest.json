@@ -1,0 +1,133 @@
+{
+  "_note": "Third-party media for samples/real. Not committed; run `python day1/fetch_real_samples.py`. Credits: SOURCES.md.",
+  "files": [
+    {
+      "path": "drone/taipei_energy_hill_nadir.jpg",
+      "url": "https://images.unsplash.com/photo-1594818379496-da1e345b0ded?fm=jpg&q=90",
+      "sha256": "3a1d7516e3c94a5088b44a9c4ed53831f98f5da0058082fd57e940292b4c8ef6",
+      "bytes": 2759408,
+      "license": "Unsplash License",
+      "credit": "Anders J"
+    },
+    {
+      "path": "drone/calgary_rows_nadir.jpg",
+      "url": "https://images.unsplash.com/photo-1770068511771-7c146210a55b?fm=jpg&q=90",
+      "sha256": "c608feefe71556d2cfeb1243a4debf9062bc4575b7694d221ea608ad6aac1d72",
+      "bytes": 3225352,
+      "license": "Unsplash License",
+      "credit": "Daniel Miksha"
+    },
+    {
+      "path": "drone/diagonal_rows_nadir.jpg",
+      "url": "https://images.unsplash.com/photo-1586366461834-d2d65d725a2e?fm=jpg&q=90",
+      "sha256": "31b47cc505b06529b57aa69807900c31b1cdc50bbcde94f493b8495935919860",
+      "bytes": 5323300,
+      "license": "Unsplash License",
+      "credit": "Red Zeppelin"
+    },
+    {
+      "path": "drone/oxford_ma_construction_oblique.jpg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/7/72/Faria_000064_153928_493437_4578_%2836293682276%29.jpg",
+      "sha256": "00dbd80f36dfbc5103f26db6f942538c2d789fc8fc9c36ce40ce39104c21e22d",
+      "bytes": 996305,
+      "license": "Public domain (US DOE)",
+      "credit": "Lucas Faria, U.S. Department of Energy"
+    },
+    {
+      "path": "nameplates/malmbergs_motor.jpg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/f/f9/Motor_nameplate_Malmbergs.jpg",
+      "sha256": "eef378946ba1049296ef94dcb0d7db8fd4a67652b08e4bf35c9f91767edda15b",
+      "bytes": 3600407,
+      "license": "CC0",
+      "credit": "Olgailga2"
+    },
+    {
+      "path": "nameplates/aeg_dfig_motor.jpg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/0/08/Typenschild-Doppelt_gespeiste_Asynchronmaschine_Apel.jpg",
+      "sha256": "ff05ba5e7631264289af09de9535b0a0631bf42aba141f4b5438ceea985b5a02",
+      "bytes": 252916,
+      "license": "CC BY-SA 2.0 de",
+      "credit": "Denis Apel"
+    },
+    {
+      "path": "nameplates/abb_motor.jpg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/0/0a/Typenschild-Drehstrom-Asynchronmaschine_apel.jpg",
+      "sha256": "4ecc369d57a5119cab7dbeb5626e01bdfbf80ec486942c0b8b52a49d6afc6275",
+      "bytes": 818574,
+      "license": "CC BY-SA 2.0 de",
+      "credit": "Denis Apel"
+    },
+    {
+      "path": "nameplates/teco_motor_worn.jpg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/8/81/Wuxi_TECO_Electric_%26_Machinery_3-phase_induction_motor_plate_20160319.jpg",
+      "sha256": "fef8542409a5b43b49744396ddd2bd2b83946f2b2f2df8f553d50815526c7c4a",
+      "bytes": 509844,
+      "license": "CC BY-SA 4.0",
+      "credit": "Solomon203"
+    },
+    {
+      "path": "nameplates/induction_motor_angled.jpg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/6/6c/Typenschild_eines_Drehstromasynchronmotors.jpg",
+      "sha256": "382a53e5e3991d82444c7f365e635e23da16890a05e60c04dc31d143b4626cbf",
+      "bytes": 4235489,
+      "license": "CC BY-SA 4.0",
+      "credit": "Rotkaeppchen68"
+    },
+    {
+      "path": "nameplates/trafo_union_cast_resin_transformer.jpg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/0/01/Typenschild_Gie%C3%9Fharztransformator_%281975%29.jpg",
+      "sha256": "fb96d97fad52dcdf3b9d7bf835d879a1c56b9f2587326c0b754fe2e2c658c056",
+      "bytes": 238549,
+      "license": "CC BY-SA 4.0",
+      "credit": "Rotkaeppchen68"
+    },
+    {
+      "path": "nameplates/current_transformer.jpg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/1/19/Nameplate_of_a_CT.jpg",
+      "sha256": "da2d532285bd75a4d8a57cba00b9cf390186fb2175545e04be91d34a3924f197",
+      "bytes": 1837703,
+      "license": "CC BY-SA 4.0",
+      "credit": "SAM31416"
+    },
+    {
+      "path": "drawing/uscg_bldg333_lighting_2nd_floor_1994.tiff",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/e/e9/Building_333_Replacement_of_Lighting_Fixtures_Electrical_Second_Floor_Installation_Plan%2C_October_13%2C_1994_-_DPLA_-_d0d6728a0f457c32bbfc6347aef18516.tiff",
+      "sha256": "5436ef4bcde88df1716552ec74346381ce39c02c905d5bb3e0e4c8e9da64e471",
+      "bytes": 375566,
+      "license": "Public domain (US Coast Guard, via NARA)",
+      "credit": "U.S. Coast Guard / National Archives"
+    },
+    {
+      "path": "drawing/uscg_bldg109_lighting_ground_floor_1984.tiff",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/1/1d/Interior_Rehabilitation_of_Building_109_Electrical_Ground_Floor_Plan_-_Lighting%2C_September_10%2C_1984_-_DPLA_-_7e4457f5aefbed7ffcc3cc15d6aaa3a7.tiff",
+      "sha256": "4e8091c7172739103eb81eeb2808099232b15575300f973625897a141d3aa1dd",
+      "bytes": 687550,
+      "license": "Public domain (US Coast Guard, via NARA)",
+      "credit": "U.S. Coast Guard / National Archives"
+    },
+    {
+      "path": "walk/clips/heggelbach_10_topdown.webm",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/b/bc/Agrivoltaics_pilot_plant_at_Heggelbach_Farm_in_Germany_10.webm/Agrivoltaics_pilot_plant_at_Heggelbach_Farm_in_Germany_10.webm.1080p.vp9.webm",
+      "sha256": "a03115223d06b67ea0fa35fb3656d042e61a66be7e47fa2745fab7ce483bab17",
+      "bytes": 7633599,
+      "license": "CC0",
+      "credit": "Tobi Kellner"
+    },
+    {
+      "path": "walk/clips/aasen_01_closeup.webm",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/b/b0/Aasen_agrivoltaics_solar_plant_with_walls_of_vertical_bifacial_modules_near_Donaueschingen_Germany_01.webm/Aasen_agrivoltaics_solar_plant_with_walls_of_vertical_bifacial_modules_near_Donaueschingen_Germany_01.webm.1080p.vp9.webm",
+      "sha256": "d4b5d97f6b665850671d601e0f06164f0951e67155f738100ccf1ffdaecd379a",
+      "bytes": 6029613,
+      "license": "CC0",
+      "credit": "Tobi Kellner"
+    },
+    {
+      "path": "walk/clips/aasen_06_rows.webm",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/e/e7/Aasen_agrivoltaics_solar_plant_with_walls_of_vertical_bifacial_modules_near_Donaueschingen_Germany_06.webm/Aasen_agrivoltaics_solar_plant_with_walls_of_vertical_bifacial_modules_near_Donaueschingen_Germany_06.webm.1080p.vp9.webm",
+      "sha256": "13d0b47dc1e1929c754e0be6816587a073f0aab0ce74d1476e8ba60c551fbcdd",
+      "bytes": 14316403,
+      "license": "CC0",
+      "credit": "Tobi Kellner"
+    }
+  ]
+}

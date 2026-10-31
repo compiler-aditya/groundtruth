@@ -1,0 +1,2 @@
+tag,equipment_type,manufacturer,model_number,voltage,power,phase,frequency_hz,enclosure
+M-101,induction motor,ACME MOTOR WORKS,XP-2150,480 V,75 hp,3,60,TEFC

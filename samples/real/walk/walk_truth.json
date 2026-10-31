@@ -1,0 +1,44 @@
+[
+  {
+    "t_s": 0.3,
+    "claim": "Starting at the Heggelbach agrivoltaic row. A gravel farm track runs along one side of the array.",
+    "true": true,
+    "footage_shows": "a gravel track runs parallel to the row below the array"
+  },
+  {
+    "t_s": 6.8,
+    "claim": "Looking straight down, I count forty module strips in this view.",
+    "true": false,
+    "footage_shows": "13 module strips in view (26 if each strip's two halves are counted separately)"
+  },
+  {
+    "t_s": 12.4,
+    "claim": "Now at Aasen. Vertical bifacial modules, two stacked in each bay.",
+    "true": true,
+    "footage_shows": "vertical bifacial modules, two modules high per bay"
+  },
+  {
+    "t_s": 17.9,
+    "claim": "The modules here are tilted about thirty degrees, facing south.",
+    "true": false,
+    "footage_shows": "the modules stand vertically, they are not tilted"
+  },
+  {
+    "t_s": 23.0,
+    "claim": "From the air, a highway runs right along the edge of the array.",
+    "true": true,
+    "footage_shows": "a multi-lane road with traffic borders the array"
+  },
+  {
+    "t_s": 29.0,
+    "claim": "The ground between the rows is bare gravel, with no vegetation.",
+    "true": false,
+    "footage_shows": "grass covers the ground between the rows"
+  },
+  {
+    "t_s": 34.0,
+    "claim": "That completes the walkthrough.",
+    "true": true,
+    "footage_shows": "closing remark, nothing to check"
+  }
+]

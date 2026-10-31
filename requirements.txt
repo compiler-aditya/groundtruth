@@ -1,0 +1,6 @@
+openai>=3.41
+meta-sam-parser>=0.0.6
+pillow
+pymupdf
+pydantic>=2
+python-dotenv

@@ -1,0 +1,233 @@
+{
+  "_note": "Answer key written by Claude (Opus) from full-resolution zooms of each file, 2026-10-31. Not a human check. Values marked uncertain are excluded from exact-match scoring.",
+  "drone": {
+    "phrase": "solar panel",
+    "counts": {
+      "taipei_energy_hill_nadir": {
+        "fully_visible": 188,
+        "at_least_half_visible": [
+          205,
+          209
+        ],
+        "score_against": 207,
+        "note": "12 full tables of 3x4 modules (144) plus edge-cut tables; the left-edge column of one table is exactly half visible"
+      },
+      "calgary_rows_nadir": {
+        "fully_visible": 476,
+        "at_least_half_visible": 498,
+        "any_part_visible": 504,
+        "score_against": 498,
+        "note": "7 rows, 2 modules wide, about 13 modules per row above the cable trench and 23 below; top and bottom modules cut by the frame"
+      },
+      "diagonal_rows_nadir": {
+        "score_against": null,
+        "note": "too dense, with dozens of diagonally cut tables at the edges, to hand count reliably; checked by inspecting the overlay"
+      },
+      "oxford_ma_construction_oblique": {
+        "score_against": null,
+        "note": "oblique, about 5 px per table; used to check whether bare racking is counted as installed modules"
+      }
+    }
+  },
+  "nameplates": {
+    "malmbergs_motor": {
+      "legible": {
+        "manufacturer": "MALMBERGS",
+        "frame": "MS 711-2",
+        "insulation class": "F",
+        "kW": "0.37",
+        "HP": "0.5",
+        "IP": "55",
+        "RPM": "2730",
+        "Hz": "50",
+        "connection": "Δ/Y",
+        "V": "230/400",
+        "A": "1.67/0.97",
+        "No.": "1212073091"
+      },
+      "planted": "schedule power 0.55 kW vs plate 0.37 kW",
+      "expected_overall": "fail"
+    },
+    "aeg_dfig_motor": {
+      "legible": {
+        "manufacturer": "AEG",
+        "series": "AEG KANIS",
+        "Typ": "S 6472/2F",
+        "Nr.": "788/002",
+        "V": "2x1100",
+        "A": "2x1417",
+        "kW": "4700",
+        "cos": "0,92",
+        "/min": "6000",
+        "Hz": "100",
+        "Erregung V": "43",
+        "Erregung A": "425",
+        "Iso.-Kl.": "F",
+        "IP": "44",
+        "weight t": "20,1",
+        "VDE": "0530",
+        "Kühlwassermenge m3/h": "52,2"
+      },
+      "planted": "schedule model S 6472/4F vs plate S 6472/2F",
+      "expected_overall": "fail"
+    },
+    "abb_motor": {
+      "legible": {
+        "manufacturer": "ABB",
+        "No.": "AW 818 174",
+        "year": "1988",
+        "Typ": "QWGy 800 xa4",
+        "P kW": "5000",
+        "Duty": "S1",
+        "cos phi": "0,89",
+        "m kg": "15 800",
+        "n 1/min": "1480",
+        "f Hz": "50",
+        "IC": "W37A81",
+        "U1 V": "10000",
+        "I1 A": "335",
+        "IM": "B3",
+        "IP": "54",
+        "El.": "VDE-0530",
+        "Cl.": "F"
+      },
+      "uncertain": [
+        "the W in AW 818 174 and in W37A81 is an unusual stamped glyph"
+      ],
+      "expected_overall": "pass"
+    },
+    "induction_motor_angled": {
+      "legible": {
+        "manufacturer": "Loher",
+        "Typ": "A 160 LA-V6/4",
+        "Mot.Nr.": "8 253 379",
+        "V": "380",
+        "A": "10/28",
+        "kW": "4,8/14",
+        "cos phi": "0,87/0,88",
+        "U/min": "965/1460",
+        "Hz": "50",
+        "Läufer": "HS 4",
+        "Isol.-Kl.": "B",
+        "IP": "44",
+        "VDE": "0530"
+      },
+      "planted": "schedule 400 V vs plate 380 V: should be acceptable, not a mismatch",
+      "expected_overall": "pass (or review)"
+    },
+    "teco_motor_worn": {
+      "legible": {
+        "manufacturer": "TECO",
+        "design": "Q/320217ACV05"
+      },
+      "unreadable": [
+        "type",
+        "frame",
+        "IP",
+        "poles",
+        "service factor",
+        "rating",
+        "output hp/kW",
+        "rotor",
+        "insulation",
+        "Hz",
+        "volts",
+        "amps",
+        "r/min",
+        "efficiency",
+        "cos phi",
+        "weight",
+        "bearings",
+        "serial number"
+      ],
+      "planted": "schedule voltage/power/model cannot be confirmed: expect unreadable, overall review",
+      "expected_overall": "review"
+    },
+    "trafo_union_cast_resin_transformer": {
+      "legible": {
+        "manufacturer": "Trafo-Union",
+        "product": "GEAFOL",
+        "Baujahr": "75",
+        "VDE": "0532/71",
+        "Nennleistung kVA": "400",
+        "Art": "LT",
+        "Frequenz Hz": "50",
+        "Betrieb": "DB",
+        "tap 2-3 V": "21 000",
+        "Nennspg 1-3 V": "20 000",
+        "LV V": "400",
+        "tap 1-4 V": "19 000",
+        "Schaltgruppe": "Dyn 5",
+        "Kühlungsart": "AN",
+        "Schutzart": "IP00",
+        "Nennstrom HV A": "11,55",
+        "Nennstrom LV A": "577",
+        "Kurzschlußdauer s": "4"
+      },
+      "uncertain": [
+        "Typ TG ?644 D (first digit 5, 8 or 9)",
+        "Nr. K7 80099",
+        "Reihe 20 S/0,5",
+        "Gewicht 1,70 or 1,78 t",
+        "Nennkurzschlussspannung 5,85 or 6,85 %",
+        "Isol. Klasse B/F (possibly E/E)"
+      ],
+      "expected_overall": "pass (or review: phase is implied by Dyn 5, not printed)"
+    },
+    "current_transformer": {
+      "legible": {
+        "manufacturer": "ZHEJIANG SANAI TRANSFORMER CO.,LTD",
+        "model": "LZZBJ-11",
+        "ratio A": "15/5",
+        "Serial No.": "31074",
+        "class": "0.5",
+        "VA": "5",
+        "Hz": "50",
+        "insulation kV": "12/28/75",
+        "standard": "IEC60044-1",
+        "1s thermal kA": "1.5",
+        "date": "2012 Y 11 M",
+        "dynamic kA": "3.75",
+        "MC": "03820522"
+      },
+      "expected_overall": "pass (or review)"
+    }
+  },
+  "drawing": {
+    "file": "uscg_bldg333_lighting_2nd_floor_1994.tiff",
+    "title_block": {
+      "agency": "U.S. Coast Guard, Civil Engineering Unit, New York, N.Y.",
+      "project": "Replacement of Lighting Fixtures, CG Support Center New York, Governors Island",
+      "sheet_title": "Building 333 Electrical 2nd Floor Installation Plan",
+      "sheet_number": "E-4",
+      "sheet_of": "4 of 5",
+      "drawing_number": "NY 0514",
+      "psn": "N4075",
+      "date": "14 OCT 94",
+      "revision": "none (revision block empty)",
+      "scale": "As shown (plan 1/8\" = 1'-0\")"
+    },
+    "tags": [
+      "Existing Panel \"C\"",
+      "Existing Panel \"D\""
+    ],
+    "fixture_type_marks": [
+      "31c",
+      "33c",
+      "35c",
+      "37c",
+      "37d",
+      "38d",
+      "39d",
+      "40d",
+      "41d",
+      "51d"
+    ],
+    "counts": {
+      "light fixture": 104,
+      "3-way switch": 28
+    },
+    "count_note": "fixtures: 44 in the west open office, 44 in the east open office, 16 in the south open office; 17 of them carry the diagonal emergency mark; no legend on the sheet"
+  },
+  "walkthrough": "see walk/walk_truth.json"
+}

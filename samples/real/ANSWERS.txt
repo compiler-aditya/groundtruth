@@ -1,0 +1,56 @@
+Fill in what you know; leave blanks if unsure. This is what the tests are scored against.
+
+Filled in by Claude on 2026-10-31 from full-resolution zooms of each file. These are Claude's counts
+and readings, not a human check. Machine-readable version: ground_truth.json. Credits: SOURCES.md.
+
+DRONE STILLS (samples/real/drone)
+  What to count (short noun phrase, e.g. "solar panel", "pile"):
+    solar panel (one module)
+  Hand count per image (file name = count):
+    taipei_energy_hill_nadir = 207   (188 fully in frame; 205-209 counting modules at least half in frame)
+    calgary_rows_nadir = 498         (476 fully in frame; 504 counting every cut-off module)
+    diagonal_rows_nadir = no count   (too dense with diagonal edge cuts; checked on the overlay instead)
+    oxford_ma_construction_oblique = no count (oblique, ~5 px per table; checks bare racks are not counted as panels)
+  Design quantity for the area shown (optional):
+    not known (public photos, no design package)
+
+NAMEPLATES (samples/real/nameplates)
+  Optional: put an equipment schedule CSV at samples/real/schedule.csv
+  (columns: tag,equipment_type,manufacturer,model_number,voltage,power,phase,frequency_hz)
+  If there's no tag on a plate, name the photo after its tag (e.g. P-301A.jpg).
+    schedule.csv written; tags are the photo file names.
+  Any value you deliberately changed in the schedule:
+    malmbergs_motor: power 0.55 kW (plate says 0.37 kW / 0.5 HP)        -> must be a MISMATCH
+    aeg_dfig_motor: model S 6472/4F (plate says S 6472/2F)              -> must be a MISMATCH
+    induction_motor_angled (Loher): 400 V (plate says 380 V)            -> should be ACCEPTABLE, not a mismatch
+    teco_motor_worn: voltage, power and model can't be read (rust)      -> must be UNREADABLE, overall REVIEW
+    abb_motor, trafo_union_cast_resin_transformer, current_transformer: no changes -> PASS (or REVIEW)
+
+DRAWING SHEET (samples/real/drawing)
+  Page number to read (if a multi-page PDF):
+    single image: uscg_bldg333_lighting_2nd_floor_1994.tiff
+  Correct sheet number, title, revision (from the title block):
+    E-4 (sheet 4 of 5), drawing no. NY 0514, PSN N4075
+    "Replacement of Lighting Fixtures, CG Support Center New York, Governors Island:
+     Building 333 Electrical 2nd Floor Installation Plan", U.S. Coast Guard CEU New York, dated 14 OCT 94
+    revision: none (revision block is empty)
+  Symbol to count, in words (e.g. "duplex receptacle"):
+    light fixture (rectangular fluorescent fixture symbol; includes the ones with a diagonal emergency mark)
+    3-way switch (the "3W" switch symbol)
+  Hand count of that symbol:
+    light fixture = 104  (44 west office, 44 east office, 16 south office)
+    3-way switch = 28
+
+WALKTHROUGH VIDEO (samples/real/walk)
+  Video: real_walk.mp4 (44 s). Real CC0 drone footage of two agrivoltaic plants; the narration is
+  synthetic (macOS voice) and scripted by Claude. Rebuild with: python day1/make_real_walk.py
+  What the design says is in the area (a few lines):
+    see walk/area_context.txt: an elevated row of module strips over cropland with a gravel track
+    along one edge (Heggelbach), and vertical bifacial modules two high per bay, grass between rows,
+    next to a highway (Aasen).
+  The false claim(s) you made on purpose, and roughly when:
+    ~6.8 s  "I count forty module strips in this view"   (truth: 13 strips, or 26 strip halves)
+    ~17.9 s "tilted about thirty degrees, facing south"  (truth: the modules are vertical)
+    ~29.0 s "bare gravel, with no vegetation"            (truth: grass between the rows)
+  True claims, which should NOT be flagged: gravel track along the array (0.3 s), vertical bifacial
+  modules two per bay (12.4 s), highway along the array (23.0 s).

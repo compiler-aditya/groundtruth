@@ -1,0 +1,12 @@
+.venv/
+.env
+out/
+__pycache__/
+.DS_Store
+
+# Third-party sample media: fetched by day1/fetch_real_samples.py (see samples/real/SOURCES.md)
+samples/real/drone/
+samples/real/nameplates/
+samples/real/drawing/
+samples/real/walk/clips/
+samples/real/walk/real_walk.mp4
