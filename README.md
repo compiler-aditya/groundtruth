@@ -1,117 +1,93 @@
-# GroundTruth: Day 1 tests
+# GroundTruth
 
-Four go/no-go tests that decide whether the GroundTruth pipeline (design package vs. what is actually built) works on Meta's models before we build the product around it.
+**An agent that checks a construction site against its design package, with evidence, using Meta's models.**
 
-| # | Script | Model | Question it answers |
-|---|---|---|---|
-| 1 | `day1/01_sam_count.py` | SAM 3.1 (+ Muse Spark 1.3 cross-check) | Can we count installed components in drone stills? |
-| 2 | `day1/02_nameplate.py` | Muse Spark 1.3 | Can we read nameplates into exact JSON and catch schedule mismatches? |
-| 3 | `day1/03_drawing_sheet.py` | Muse Spark 1.3 (+ optional SAM) | Can we read a drawing sheet: title block, tags, symbol counts? |
-| 4 | `day1/04_walkthrough_spark_open.py` | Muse Spark Open on Baseten | Can one model connect a narrated video's audio and visuals and catch "said vs. seen" conflicts? |
+On a big site (a solar farm, a substation, a plant) commissioning means proving that what was built matches thousands of lines of design: quantities, equipment schedules, drawing revisions. Today that is people walking the site with clipboards, and progress reports that are taken on trust. Mistakes surface at handover, when they are expensive.
 
-## Setup
+GroundTruth takes the design package and the captures a site already produces (drone stills, nameplate photos, a narrated phone walkthrough). A Muse Wonder agent works out which capture proves which design item and runs the checks with SAM 3.1, Muse Spark 1.3 and Muse Spark Open. Code decides each verdict from the measurements. Every failure becomes a finding linked to its evidence, and Muse Spark 1.3 drafts the paperwork: a Non-Conformance Report (NCR) for wrong work, a Request for Information (RFI) when the design is unclear, and an observation report when what someone reported is contradicted by the evidence.
 
-```bash
-uv venv .venv
-uv pip install --python .venv/bin/python -r requirements.txt
-cp .env.example .env    # then put your two keys in .env
+```
+design package ─┐                          ┌─ SAM 3.1 ........ counts modules, tables, objects on drone stills
+  quantities    │                          ├─ Spark 1.3 ...... reads nameplates, title blocks, counts drawing symbols,
+  equip schedule├─► Muse Wonder agent ─────┤                   judges walkthrough claims on full-resolution stills
+  drawing reg.  │   plans, calls tools     └─ Spark Open ..... hears + sees each walkthrough clip (Baseten)
+  site notes    │   in parallel, follows up          │
+captures ───────┘                                    ▼
+  drone stills, nameplate photos,         verdicts computed in code ─► findings (each tied to a result + images)
+  drawings, narrated walkthroughs                                      ─► Spark 1.3 drafts NCR / RFI / OBS (grounding-checked)
+                                                                       ─► report.html
 ```
 
-Needs ffmpeg for test 4 (`brew install ffmpeg`). Every script takes `--dry-run` (no API calls) and `--help`.
-
-## 1. Smoke test on synthetic samples
-
-`day1/make_samples.py` writes made-up samples with known answers into `samples/` (already generated; rerun any time). They prove the pipeline runs end to end. They are not a substitute for real data.
+## Quick start
 
 ```bash
-.venv/bin/python day1/01_sam_count.py samples/drone --phrase "solar panel" --expected "solar panel=192" --tiles 2 --spark-check
-.venv/bin/python day1/02_nameplate.py samples/nameplates --schedule samples/equipment_schedule.csv
-.venv/bin/python day1/03_drawing_sheet.py samples/drawing/E-101_synthetic.pdf --count "duplex receptacle" --count "light fixture" --expected "duplex receptacle=14" --expected "light fixture=10" --sam-phrase "light fixture"
-.venv/bin/python day1/04_walkthrough_spark_open.py samples/walk/synthetic_walk.mp4 --context-file samples/area_context.txt
+uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
+cp .env.example .env                               # MODEL_API_KEY (Meta Model API), BASETEN_API_KEY
+.venv/bin/python day1/fetch_real_samples.py        # the public sample media (not in the repo; checksums verified)
+.venv/bin/python groundtruth.py run projects/demo-solar
+open out/runs/demo-solar/latest/report.html
 ```
 
-Expected answers:
-- **Drone:** 180 of 192 modules installed (row 4 is missing 9, row 2 is missing 1, row 7 is missing 2).
-- **Nameplate M-101:** 50 HP, 460 V, XP-2150. The schedule says 75 HP, which should be flagged as a **mismatch**. 480 V vs. 460 V should come back as **acceptable**, not a mismatch.
-- **Drawing E-101:** revision 2; 14 receptacles and 10 fixtures (the legend's sample symbols must not be counted); tags LP-1, TX-1, EF-1.
-- **Walkthrough:** the narrator says row 4 is complete and the motor shows 75 HP. Both are false, so both should appear under `audio_visual_conflicts`.
+Needs ffmpeg (`brew install ffmpeg`). Results are cached by tool, arguments and file, so a second run only pays for the agent and the drafts; `--no-cache` recomputes everything.
 
-Outputs (overlays, JSON) go to `out/`.
-
-### Smoke-test results (2026-10-31, synthetic samples)
-
-| Test | Result | Verdict |
-|---|---|---|
-| 1. Drone count | SAM 180/180 with `--tiles 2` (mean confidence 0.91). Spark 180/180 on the whole image | Pass. SAM **needs tiles** (134/180 untiled). Spark counts best **untiled** (185–238 when tiled, because its points on identical panels are too loose to merge across tile seams) |
-| 2. Nameplate | All 7 identity fields and all 11 ratings exact. 75 hp flagged as **mismatch**, 480 V vs. 460 V as **acceptable** | Pass |
-| 3. Drawing | Title block 100%, tags 3/3, receptacles 14/14, fixtures 10/10 (legend excluded), with 2×2 tiles and with the whole-sheet default added later | Pass for Spark. **SAM found 0 fixtures**, so SAM is a no-go on line drawings |
-| 4. Walkthrough | **Video pass (Spark Open):** spoken notes verbatim; the motor claim caught every run; the row-4 claim caught in only 2 of 3 runs (once it misread the aerial as ~24 modules). **Claim check on full-resolution stills (Spark 1.3 + SAM):** row 4 → SAM counts **15 in scope vs. 24 claimed → contradicted**; "75 HP" → contradicted (plate reads 50); "this is M-101" → confirmed. Cost ≈ $0.02 Baseten + $0.03 Meta per 40 s clip | Pass with the claim check. Video gets ~70 tokens per frame (≈6.9K / 96 frames), fine for narration and close-ups but not for counting in wide shots, so counts come from the stills |
-
-Meta API spend for all of the above, including re-runs: under $0.50.
-
-## 2. Run on real data
-
-`samples/real/` holds 16 openly licensed real files: 4 drone stills, 7 nameplates, 2 drawing sheets and 3 CC0 site clips. Credits are in [samples/real/SOURCES.md](samples/real/SOURCES.md). The answer key is in [ANSWERS.txt](samples/real/ANSWERS.txt) and [ground_truth.json](samples/real/ground_truth.json); Claude wrote it from full-resolution zooms, and nobody has checked it by hand. The walkthrough video is real footage with a scripted, synthetic narration (three true claims, three false), built by `day1/make_real_walk.py`.
+Offline tests, with every model call faked (no API key needed; `test_agent.py` needs the fetched samples):
 
 ```bash
-.venv/bin/python day1/01_sam_count.py samples/real/drone/taipei_energy_hill_nadir.jpg samples/real/drone/calgary_rows_nadir.jpg samples/real/drone/diagonal_rows_nadir.jpg --phrase "solar panel" --tiles 2 --modules
-.venv/bin/python day1/02_nameplate.py samples/real/nameplates --schedule samples/real/schedule.csv
-.venv/bin/python day1/03_drawing_sheet.py samples/real/drawing/uscg_bldg333_lighting_2nd_floor_1994.tiff --count "light fixture" --count "3-way switch" --expected "light fixture=104" --expected "3-way switch=28" --sam-phrase "light fixture"
-.venv/bin/python day1/04_walkthrough_spark_open.py samples/real/walk/real_walk.mp4 --context-file samples/real/walk/area_context.txt
-.venv/bin/python day1/score_real.py   # reads out/real_t1_modules, out/real_t2, out/real_t3, out/real_t4
+for t in tests/*.py; do .venv/bin/python $t; done
 ```
 
-Copy each test's output folder (`out/sam`, `out/nameplate`, `out/drawing`, `out/walkthrough`) to the matching `out/real_t*` folder before scoring.
+## The demo package
 
-### Real-data results (2026-10-31, after the fixes below)
+[projects/demo-solar](projects/demo-solar) is a design package written for the demo around public captures: real drone stills, 7 real equipment nameplates, a real 1994 US Coast Guard lighting plan, real CC0 drone footage with a scripted narration, plus one synthetic drone still and one synthetic drawing sheet. It has 9 planted problems and 7 items that should pass, listed in [expected_findings.json](projects/demo-solar/expected_findings.json).
 
-| Test | Result | Verdict |
+Three full agent runs on 2026-10-31:
+
+| Run | Planted problems found (right document type) | False alarms | Should-pass items passed | Drafts on topic | Time | Cost |
+|---|---|---|---|---|---|---|
+| 1, everything computed | **9/9** | 1: a true narrated claim. SAM counted a scope box wider than the claim; fixed by requiring SAM and Spark to agree | 7/7 | 8/10 (drafted by Wonder) | 180 s | $0.86 |
+| 2, after the fix | **9/9** | 0 | 7/7 | 5/9 (drafted by Wonder) | 194 s | $0.73 |
+| 3, drafts by Spark 1.3 | **9/9** | 0 | 7/7 | **9/9**, all at the first attempt | 48 s (checks cached) | $0.37 |
+
+In every run the agent matched all 7 nameplates to the right schedule row from what the plates show. It never sees file names. It planned the whole package in its first turn (14 parallel tool calls) and finished in 4 turns. A run with nothing cached costs about $0.80 and takes about 3 minutes, mostly the walkthrough video. Score any run with `python groundtruth.py evaluate out/runs/demo-solar/latest`.
+
+## How it uses Meta's models, and what we learned
+
+| Model | Used for | What surprised us (measured in [docs/day1-tests.md](docs/day1-tests.md)) |
 |---|---|---|
-| 1. Drone count | **With a phrase alone, SAM and Spark count tables, not modules.** "solar panel" gives 24 and 24 on Taipei (its 24 tables) and 14 and 14 on Calgary (7 rows × 2 tables). "solar module", "photovoltaic module", "single solar panel" and "solar panel module" don't change that (24, 0, 37 and 24 on Taipei). **`--modules`** (SAM finds tables, Spark counts the module grid in each masked table crop): **Taipei 179 fully visible vs 188 (−4.8%), Calgary 475 vs 476 (−0.2%).** Before masking, Taipei 178–181 and Calgary 481–504 across runs; on the diagonal still, box crops held neighbouring tables and gave 827, masked crops 613. That still is low because SAM missed three glare-bleached rows. Oxford (high oblique): SAM boxed 88 tables, none on bare racks, but missed whole blocks | **Go on nadir stills with `--modules`.** Within ±5% on both hand-counted stills, Taipei only just. Counting tables with SAM alone is reliable. Check the overlay for missed rows (glare), and don't count from high oblique photos. Costs ~$0.009 per table (Taipei 24 tables ≈ $0.22) |
-| 2. Nameplates | **92/92 legible fields exact** across 7 plates. Values Spark put in `notes` or `certification_marks` count, and short values are matched loosely. **All 7 schedule verdicts as expected:** ABB, CT and Loher PASS (380 V on a 400 V schedule marked acceptable); Malmbergs (0.55 vs 0.37 kW) and AEG (S 6472/4F vs /2F) FAIL; rusted TECO REVIEW with every stamped value unreadable; transformer REVIEW (phase only implied by Dyn 5). One slip: it read the printed box next to "kg" on the TECO plate as "WEIGHT 20 kg" | **Go.** On a 779 px plate photo some digits are ambiguous even to a person, so ask for close-ups |
-| 3. Drawing | US Coast Guard lighting plan, 1994. **Title block all right**, including the new drawing-number field (NY 0514). Both panel tags and all fixture-type marks found. Light fixtures: 2×2 tiles 116 (+11.5%, the same fixture counted from both sides of a tile overlap); **whole sheet 112 (+7.7%) and 109 (+4.8%) on two runs**. 3-way switches, whole sheet: 25 (−10.7%) and 28 (0%). Synthetic sheet, whole: 14/14 and 10/10. SAM: 0 fixtures | **Go for title blocks. Counts are borderline:** within ±10% on most runs, but they swing ±5% between runs and are off by up to 25% in a single room. Show the overlay for a person to confirm. SAM stays off drawings |
-| 4. Walkthrough | Real CC0 footage, 44 s, scripted narration. 1/1 clip valid JSON, no retry. **3/3 false claims contradicted** in both the video pass and the stills check. **0 true claims contradicted.** The "forty strips" claim: SAM counted 26 strip halves in scope, Spark 13 strips → contradicted. Cost ≈ $0.02 Baseten + $0.15 Meta | **Go.** The voice is clean text-to-speech, so a real phone narration (wind, accents, crosstalk) is still untested |
+| **Muse Wonder** | The agent: reads the package, matches plates to schedule rows by what they show, calls up to 14 tools in one turn, records findings | Plans the whole package in its first turn and starts the slow walkthrough check first. Tool calling was reliable in every run. But when it **drafted** documents from data-heavy prompts, it drifted to unrelated topics: 2–4 of 9 drafts per run were about something else (a rusted motor plate came back as "Maidstone agreeing entry rent fee"), though it answered a short probe correctly 5/5. So drafts moved to Spark 1.3 (9/9 on topic), behind a grounding check |
+| **SAM 3.1** | Counting on drone stills; counting inside the region a narrator's claim is about | It counts a whole **table** of modules as one "solar panel", whatever the wording ("solar module", "photovoltaic module" and others all gave tables). So modules are counted in two stages: SAM masks each table, then Spark counts the module grid inside each masked crop. That gets within 0.2–5% of a hand count. It finds **0** symbols on line drawings, so drawings go to Spark |
+| **Muse Spark 1.3** | Nameplates, drawing title blocks and symbol counts, module grids, judging walkthrough claims on full-resolution stills, drafting the NCR/RFI/OBS documents | 92/92 legible nameplate fields exact across 7 real plates. On a rusted plate it lists 17 fields as unreadable instead of guessing. Counting symbols on a whole sheet beats tiling it (tiles count seam symbols twice: +11.5% vs +4.8%) |
+| **Muse Spark Open** (on Baseten, `meta-models/muse-spark-open-1026`) | One call per clip with the video and the narration audio: what was said, what was seen, and where they disagree | It caught every false narrated claim. But video arrives at about 70 tokens per frame, too coarse for counting, so every claim is re-checked on full-resolution stills |
 
-Fixes made after the first real-data run:
-- **Test 2:** the schedule `tag` column now only finds the row and is no longer compared against the plate. Plates rarely carry project tags, so the comparison had forced every plate to REVIEW.
-- **Test 3:**
-  - It counts on the whole sheet by default (`--tiles 1`).
-  - It scales count tiles to `--count-max-side` (4096); the API rejects a 7177 px image.
-  - The title block has a `drawing_number` field.
-- **Test 1:** `--modules` crops each SAM table with its mask ([gt/sam.py](gt/sam.py) `masked_crop`). Spark then counts the module grid in each crop ([gt/spark.py](gt/spark.py) `count_modules_per_table`), and the table counts are summed.
+## Built to be checked
 
-Meta spend for the real-data runs, experiments and re-runs: about $2.20; Baseten about $0.02.
+- **The model chooses the checks; code decides the verdict.** `verify_quantity` compares counts with the design quantity and tolerance. `check_drawing_register` compares sheet number, title and revision. `check_equipment` maps the field-by-field comparison to pass, review or mismatch.
+- **Findings can't be invented.** `record_finding` only accepts a result that did not pass, takes the facts and evidence from that result, and rejects duplicates. `finish` refuses to close while a failure has no finding.
+- **Follow-ups are built in.** If the manufacturer on a plate differs from the schedule row the agent picked, the result is `wrong_row` and the agent must try another row. If SAM and Spark disagree on a narrated count, the claim goes to `needs_review` for a person rather than being called false.
+- **Every number has a source.** The report shows, for each finding, the result ID, the tool and arguments, the models, the time, and the overlay images. Each run also writes `report.json`.
+- **Drafts must stay on topic.** A draft has to name its subject (tag, area, sheet or claim) and its measured numbers, or it is regenerated. If it fails twice, a plain template built from the facts is used, and the report labels it.
 
-### Your own data
+## Project packages
 
-Put real files in `samples/real/` (or anywhere) and point the scripts at them:
+```
+projects/<name>/project.json        name, description, design files, drawings and captures (id, type, area, path)
+projects/<name>/design/             quantities.csv, equipment_schedule.csv, drawing_register.csv, site_notes.md
+projects/<name>/expected_findings.json   optional answer key: `groundtruth.py evaluate out/runs/<name>/latest`
+```
 
-- **Drone stills:** 3–5 overhead photos of a solar site under construction. Your own or a partner's are best. If you take public images (e.g. Wikimedia Commons), check each file's license. Hand-count one image to score against.
-- **Nameplates:** 5+ phone photos of real motor, pump, transformer or inverter plates, including one with glare or an angle. Write a schedule CSV with one deliberately wrong value.
-- **Drawing sheet:** one real plan sheet (PDF or image). Public bid sets from government agencies are a good source. Hand-count one symbol type.
-- **Walkthrough:** a 1–3 minute phone video of any work area, with you narrating and one deliberate false claim.
+Quantity methods: `objects` (SAM count), `tables` (SAM count of whole tables), `modules` (SAM tables, then Spark grids) and `drawing_symbol` (Spark points on a sheet). The agent only sees capture IDs, types, areas and labels, never file names, so it has to identify equipment from what the photos show.
 
-## Go / no-go
+## Code
 
-| Test | Go if… | If no-go |
-|---|---|---|
-| SAM counting | Count within ±5% of a hand count on 3 real stills; no systematic misses in the overlays | Try `--tiles 2/3` and more specific phrases. Otherwise fall back to Spark point-and-count |
-| Nameplates | ≥90% of legible fields exact; the planted mismatch is flagged every time | Raise `--effort`; send a tighter crop of the plate |
-| Drawing sheet | Title block 100% right, ≥80% of tags found, symbol counts within ±10% | More tiles / higher `--dpi`; restrict to schedules and title blocks |
-| Spark Open walkthrough | Spoken notes captured, the planted conflict caught, ≥90% of clips valid JSON without a retry | Shorter clips; `--effort high`; or split the job between Spark 1.3 (video) and Voice Transcribe (audio) |
+| Path | What |
+|---|---|
+| [groundtruth.py](groundtruth.py) | `run` and `evaluate` commands |
+| [gt/agent.py](gt/agent.py) | Muse Wonder tool-calling loop (Responses API, stateless replay, parallel tool calls) |
+| [gt/tools.py](gt/tools.py) | The tools, verdict rules, evidence store and result cache |
+| [gt/drafts.py](gt/drafts.py), [gt/report.py](gt/report.py), [gt/evaluate.py](gt/evaluate.py) | NCR/RFI/OBS drafting with the grounding check, the HTML report, scoring against an answer key |
+| [gt/sam.py](gt/sam.py), [gt/spark.py](gt/spark.py), [gt/nameplate.py](gt/nameplate.py), [gt/drawing.py](gt/drawing.py), [gt/walkthrough.py](gt/walkthrough.py), [gt/claims.py](gt/claims.py) | Model-level building blocks |
+| [day1/](day1) | The four model go/no-go tests and their real-data scoring ([docs/day1-tests.md](docs/day1-tests.md)) |
 
-Record SAM-on-drawings (`--sam-phrase` in test 3) either way. It decides whether SAM is used on drawings at all.
+## Built during the hackathon
 
-## Cost per run (pay-as-you-go)
-
-SAM costs $2.50 per 1,000 images, so a 2×2-tiled still is 1 cent. Spark 1.3 and Spark Open cost $1.25 / $4.25 per 1M tokens in/out, so each nameplate or sheet read is roughly 1–3 cents. A 45 s walkthrough clip is about 6–7K video tokens plus audio and reasoning, so a few cents. The whole Day 1 run should cost under $2.
-
-## Notes from the docs that shaped these scripts
-
-- SAM takes **one short noun phrase per request**. Use separate requests for "solar panel" and "pile". Video tracking is capped at 16 objects per frame, so counting uses stills.
-- Images are rotated per EXIF and re-encoded before sending, so the coordinates SAM and Spark return line up with the overlays.
-- Spark grounding uses a 0–1000 grid. Counts are done per tile, mapped back to pixels and de-duplicated across tile overlaps.
-- Hackathon Baseten keys only work with the model ID `meta-models/muse-spark-open-1026` (the default in `gt/config.py`; override with `SPARK_OPEN_MODEL` in `.env`). Other IDs return `403 please check the api-key`.
-- Spark Open on Baseten has **no structured output or JSON mode**, so test 4 validates JSON itself and retries once. Its video encoder samples at most 96 frames per clip, so clips default to 45 s.
-- Test 4 runs in two passes. Spark Open hears the narration and lists each claim. Then [gt/claims.py](gt/claims.py) pulls full-resolution stills from the original video at that moment. Spark 1.3 judges each claim on the stills and, for quantity claims, names the object and boxes the region the claim covers, and SAM counts inside that box. The verdict is exact match = confirmed, off by 1 (or 5%) = needs review, otherwise contradicted. Overlays are saved next to the report.
-- Spark Open reasons at its highest standard level by default. Test 4 sets `--effort medium` and prints reasoning tokens per clip, so you can compare `low` / `medium` / `high`.
+Everything in this repository was written during the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026): first the model tests in `day1/`, then the agent, tools, drafts and report. The git history shows the order. Third-party code is limited to the libraries in [requirements.txt](requirements.txt). Sample media belongs to its authors under the licences in [samples/real/SOURCES.md](samples/real/SOURCES.md); it is not redistributed here but downloaded by `day1/fetch_real_samples.py`. The synthetic samples in `samples/` are generated by `day1/make_samples.py`.

@@ -1,0 +1,8 @@
+tag,equipment_type,manufacturer,model_number,voltage,power,phase,frequency_hz
+P-101-M,three-phase induction motor,Malmbergs,MS 711-2,230/400 V,0.55 kW,3,50
+CH-201-M,six-phase motor,AEG,S 6472/4F,2x1100 V,4700 kW,6,100
+CP-301-M,asynchronous machine,ABB,QWGy 800 xa4,10000 V,5000 kW,3,50
+F-401-M,three-phase induction motor,Loher,A 160 LA-V6/4,400 V,4.8/14 kW,3,50
+P-501-M,three-phase induction motor,TECO,AEHF,380 V,2.2 kW,3,60
+TX-1,cast resin transformer,Trafo-Union,,20000/400 V,400 kVA,3,50
+CT-1,current transformer,Zhejiang Sanai Transformer,LZZBJ-11,12/28/75 kV,5 VA,,50

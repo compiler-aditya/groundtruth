@@ -32,78 +32,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import pymupdf  # noqa: E402
-from PIL import Image, ImageDraw  # noqa: E402
+from PIL import ImageDraw  # noqa: E402
 
 from gt.config import PRICE, meta_async_client, meta_client, out_dir  # noqa: E402
-from gt.media import fit_long_side, load_image, make_tiles, slug  # noqa: E402
+from gt.drawing import LEGEND_RULE, count_tiles, read_sheet, render_sheet  # noqa: E402
+from gt.media import slug  # noqa: E402
 from gt.sam import draw_detections, segment_tiles  # noqa: E402
-from gt.spark import Usage, count_points, image_part, structured, text_part  # noqa: E402
-
-S = {"type": "string"}
-
-TITLE_FIELDS = ("sheet_number", "drawing_number", "sheet_title", "discipline", "project_name", "date", "revision", "scale")
-
-SHEET_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "title_block": {
-            "type": "object",
-            "properties": {k: S for k in TITLE_FIELDS},
-            "required": list(TITLE_FIELDS),
-            "additionalProperties": False,
-        },
-        "legend": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {"symbol_description": S, "meaning": S},
-                "required": ["symbol_description", "meaning"],
-                "additionalProperties": False,
-            },
-        },
-        "equipment_tags": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {"tag": S, "description": S, "location_hint": S},
-                "required": ["tag", "description", "location_hint"],
-                "additionalProperties": False,
-            },
-        },
-        "general_notes": {"type": "array", "items": S},
-        "readability": {"type": "string", "enum": ["good", "partial", "poor"]},
-        "issues": S,
-    },
-    "required": ["title_block", "legend", "equipment_tags", "general_notes", "readability", "issues"],
-    "additionalProperties": False,
-}
-
-SHEET_PROMPT = (
-    "These images are one construction drawing sheet: first the whole sheet, then a close-up of its right-hand "
-    "strip where the title block usually is. Read the title block exactly as printed (empty string for any field "
-    "that is not on the sheet). sheet_number is the short discipline sheet ID (e.g. E-101); drawing_number is the "
-    "separate drawing or document number many title blocks also carry (e.g. NY 0514, 1234-E-002). List every legend entry, and every equipment or element tag that appears on the "
-    "drawing (e.g. P-301A, MCC-2, door numbers, panel names) with what it labels and where on the sheet it is. "
-    "Summarise each general note in one line. Do not guess text you cannot read; say so in issues."
-)
-
-
-LEGEND_RULE = (
-    "This is part of a construction drawing. Count only symbols placed on the plan itself; do not count the "
-    "sample symbols shown in a legend, symbol list, schedule, title block or notes."
-)
-
-
-def render_sheet(path: str, page: int, dpi: int) -> Image.Image:
-    if path.lower().endswith(".pdf"):
-        doc = pymupdf.open(path)
-        if not 1 <= page <= doc.page_count:
-            raise SystemExit(f"{path} has {doc.page_count} page(s); --page {page} is out of range.")
-        pix = doc[page - 1].get_pixmap(dpi=dpi)
-        return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-    return load_image(path)
-
+from gt.spark import Usage, count_points  # noqa: E402
 
 def parse_expected(items: list[str]) -> dict[str, int]:
     pairs = [item.rpartition("=") for item in items]
@@ -130,14 +65,8 @@ async def main() -> None:
     stem = slug(Path(args.sheet).stem) + (f"-p{args.page}" if args.sheet.lower().endswith(".pdf") else "")
     sheet_path = out / f"{stem}.png"
     sheet.save(sheet_path)
-    overview = fit_long_side(sheet, 3072)
-    strip = fit_long_side(sheet.crop((int(sheet.width * 0.75), 0, sheet.width, sheet.height)), 2048)
     # Counting runs on a copy scaled so each tile fits the image decode limit; points are mapped back to the sheet.
-    overlap = 0.08 if args.tiles > 1 else 0.0
-    tile_side = max(sheet.size) / args.tiles * (1 + overlap)
-    scale = min(1.0, args.count_max_side / tile_side)
-    count_sheet = sheet.resize((round(sheet.width * scale), round(sheet.height * scale)), Image.LANCZOS) if scale < 1 else sheet
-    tiles = make_tiles(count_sheet, args.tiles, overlap)
+    count_sheet, tiles, scale = count_tiles(sheet, args.tiles, args.count_max_side)
     expected = parse_expected(args.expected)
     print(f"Sheet {sheet.width}x{sheet.height} saved to {sheet_path}; {len(tiles)} count tile(s)"
           + (f" of a copy scaled to {count_sheet.width}x{count_sheet.height}" if scale < 1 else ""))
@@ -151,10 +80,7 @@ async def main() -> None:
     usage = Usage()
     report: dict = {"sheet": args.sheet, "page": args.page, "image": str(sheet_path)}
 
-    info = structured(
-        client, [text_part(SHEET_PROMPT), image_part(overview), image_part(strip)], "sheet", SHEET_SCHEMA,
-        usage=usage, effort=args.effort,
-    )
+    info = read_sheet(client, sheet, usage=usage, effort=args.effort)
     report["sheet_info"] = info
     tb = info["title_block"]
     print(f"\nTitle block: {tb['sheet_number']} - {tb['sheet_title']} | drawing {tb['drawing_number'] or '-'} | "

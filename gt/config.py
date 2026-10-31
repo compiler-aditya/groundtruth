@@ -16,12 +16,15 @@ META_BASE_URL = "https://api.meta.ai/v1"
 BASETEN_BASE_URL = "https://inference.baseten.co/v1"
 
 SPARK = "muse-spark-1.3"
+WONDER = "muse-wonder-1.0"
 SAM = "sam-3.1"
 
 # Pay-as-you-go prices from dev.meta.ai/docs/pricing-rate-limits (Oct 2026).
 PRICE = {
     "spark_in_per_m": 1.25,
     "spark_out_per_m": 4.25,
+    "wonder_in_per_m": 4.00,
+    "wonder_out_per_m": 20.00,
     "sam_per_image": 2.50 / 1000,
     "sam_per_frame": 0.20 / 1000,
 }

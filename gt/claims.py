@@ -137,6 +137,21 @@ async def verify_claim(
         overlay=str(overlay_path),
     )
     if check["claimed_count"] >= 0:
-        result["final_verdict"] = count_verdict(check["claimed_count"], len(inside))
-        result["method"] = f"SAM 3.1 count in Spark's scope box (frame {index})"
+        result["final_verdict"], result["method"] = combine_counts(check["claimed_count"], len(inside), check, phrase, index)
     return result
+
+
+def combine_counts(claimed: int, sam_count: int, check: dict, phrase: str, frame: int) -> tuple[str, str]:
+    """Final verdict for a quantity claim from SAM's count in the scope box and Spark's own reading.
+
+    SAM decides only when it agrees with Spark. Zero matches means SAM could not find the phrase (e.g. "module
+    strip"), so Spark's verdict stands; when the two disagree (a scope box wider than the claim, say) the claim
+    goes to a person instead of being called false.
+    """
+    sam_verdict = count_verdict(claimed, sam_count)
+    spark_verdict = count_verdict(claimed, check["observed_count"]) if check["observed_count"] >= 0 else check["verdict"]
+    if sam_count == 0:
+        return check["verdict"], f"Spark 1.3 on full-resolution stills (SAM found no '{phrase}')"
+    if sam_verdict == spark_verdict:
+        return sam_verdict, f"SAM 3.1 count in Spark's scope box (frame {frame}), agreeing with Spark 1.3"
+    return "needs_review", f"SAM 3.1 counted {sam_count} in the scope box, Spark 1.3 counted {check['observed_count']}"

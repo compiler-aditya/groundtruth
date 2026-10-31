@@ -12,7 +12,7 @@ from meta_sam_parser import (
     parse_responses_stream,
 )
 from openai import AsyncOpenAI
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from .config import SAM
 from .media import Tile, dedupe_boxes, to_data_url
@@ -152,3 +152,13 @@ def draw_detections(image: Image.Image, detections: list[Detection], color=(255,
     for det in detections:
         draw.rectangle(det.box, outline=color + (255,), width=2)
     return canvas.convert("RGB")
+
+
+def label_detections(image: Image.Image, detections: list[Detection], labels: list[str]) -> Image.Image:
+    """Writes a label at the centre of each detection's box, e.g. its module count."""
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.load_default(size=max(16, image.width // 60))
+    for det, label in zip(detections, labels):
+        center = ((det.box[0] + det.box[2]) / 2, (det.box[1] + det.box[3]) / 2)
+        draw.text(center, label, fill=(255, 255, 0), font=font, anchor="mm", stroke_width=3, stroke_fill=(0, 0, 0))
+    return image

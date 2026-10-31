@@ -1,0 +1,19 @@
+{
+  "_note": "Answer key for the demo package: what a correct run should find. Written by hand from the samples' ground truth.",
+  "nonconformance": [
+    {"ref": "Q-A1", "what": "Block A has 180 of 192 modules (row 4 missing 9, row 2 missing 1, row 7 missing 2)", "capture": "DRN-A01"},
+    {"ref": "P-101-M", "what": "Plate says 0.37 kW / 0.5 HP; schedule says 0.55 kW", "capture": "NP-01"},
+    {"ref": "CH-201-M", "what": "Plate says S 6472/2F; schedule says S 6472/4F", "capture": "NP-02"}
+  ],
+  "design_query": [
+    {"ref": "Q-E1", "what": "Fixture schedule says 130 fixtures on E-4; the sheet shows 104 (Spark counts 109-116)", "capture": "DWG-E4"},
+    {"ref": "E-101", "what": "Register says rev 3 is current; the sheet in the package is rev 2", "capture": "DWG-E101"},
+    {"ref": "P-501-M", "what": "TECO plate rusted: model, voltage, power and frequency unreadable", "capture": "NP-05"}
+  ],
+  "reporting_discrepancy": [
+    {"ref": "WLK-01 @ 6.8 s", "what": "Narrator says forty module strips; 13 are in view"},
+    {"ref": "WLK-01 @ 17.9 s", "what": "Narrator says modules are tilted thirty degrees; they are vertical"},
+    {"ref": "WLK-01 @ 29.0 s", "what": "Narrator says bare gravel between rows; it is grass"}
+  ],
+  "pass": ["Q-C1 (14 tables)", "Q-E2 (14 receptacles)", "E-4 title block", "CP-301-M", "F-401-M (380 V on 400 V acceptable)", "CT-1", "TX-1 (review at most: phase implied by Dyn 5)"]
+}

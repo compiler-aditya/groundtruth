@@ -1,0 +1,5 @@
+item_id,area,description,count_what,unit,design_qty,method,tolerance_pct
+Q-A1,Block A,PV modules installed in Block A (8 rows of 24),solar panel,module,192,objects,0
+Q-C1,Block C,Mounting tables in Block C rows C1-C7 (two tables per row),solar panel,table,14,tables,0
+Q-E1,DWG-E4,Light fixtures on sheet E-4 per the lighting fixture schedule,light fixture,fixture,130,drawing_symbol,5
+Q-E2,DWG-E101,Duplex receptacles on sheet E-101 per the device schedule,duplex receptacle,receptacle,14,drawing_symbol,10

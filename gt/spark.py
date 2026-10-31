@@ -16,12 +16,14 @@ from .media import Tile, norm_to_px, to_data_url
 
 
 class Usage:
-    """Running token and cost tally across calls."""
+    """Running token and cost tally across calls (Spark 1.3 prices unless given another model's)."""
 
-    def __init__(self) -> None:
+    def __init__(self, in_per_m: float = PRICE["spark_in_per_m"], out_per_m: float = PRICE["spark_out_per_m"]) -> None:
         self.input_tokens = 0
         self.output_tokens = 0
         self.calls = 0
+        self.in_per_m = in_per_m
+        self.out_per_m = out_per_m
         self._lock = threading.Lock()
 
     def add(self, usage) -> None:
@@ -34,9 +36,7 @@ class Usage:
 
     @property
     def cost(self) -> float:
-        return (
-            self.input_tokens * PRICE["spark_in_per_m"] + self.output_tokens * PRICE["spark_out_per_m"]
-        ) / 1_000_000
+        return (self.input_tokens * self.in_per_m + self.output_tokens * self.out_per_m) / 1_000_000
 
     def __str__(self) -> str:
         return f"{self.calls} calls, {self.input_tokens:,} in / {self.output_tokens:,} out tokens, ~${self.cost:.4f}"
@@ -52,6 +52,7 @@ def structured(
     effort: str = "low",
     model: str = SPARK,
     max_output_tokens: int = 16000,
+    instructions: str | None = None,
 ) -> dict:
     """Responses API call whose output is decoded against `schema` (text.format), so it always parses."""
     response = client.responses.create(
@@ -60,6 +61,7 @@ def structured(
         text={"format": {"type": "json_schema", "name": name, "schema": schema}},
         reasoning={"effort": effort},
         max_output_tokens=max_output_tokens,
+        **({"instructions": instructions} if instructions else {}),
     )
     usage.add(response.usage)
     if response.status != "completed":
@@ -207,6 +209,12 @@ def count_modules_per_table(
 
     with ThreadPoolExecutor(workers) as pool:
         return list(pool.map(one, crops))
+
+
+def grid_label(grid: dict) -> str:
+    """'12' for a table with 12 whole modules, '12+3' when 3 more are cut by the image edge."""
+    cut = grid["modules_cut_by_crop_edge"]
+    return f"{grid['modules_fully_visible']}" + (f"+{cut}" if cut else "")
 
 
 def _nearest_neighbour_distances(points: list[tuple[float, float]]) -> list[float]:

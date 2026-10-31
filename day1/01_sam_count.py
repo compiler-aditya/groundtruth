@@ -29,12 +29,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PIL import ImageDraw, ImageFont  # noqa: E402
+from PIL import ImageDraw  # noqa: E402
 
 from gt.config import PRICE, meta_async_client, meta_client, out_dir  # noqa: E402
 from gt.media import expand_inputs, fit_long_side, load_image, make_tiles, slug  # noqa: E402
-from gt.sam import draw_detections, masked_crop, segment_tiles  # noqa: E402
-from gt.spark import Usage, count_modules_per_table, count_points  # noqa: E402
+from gt.sam import draw_detections, label_detections, masked_crop, segment_tiles  # noqa: E402
+from gt.spark import Usage, count_modules_per_table, count_points, grid_label  # noqa: E402
 
 
 def parse_expected(items: list[str]) -> dict[str, int]:
@@ -134,11 +134,7 @@ async def main() -> None:
                 for x, y in spark_points[phrase]:
                     draw.ellipse((x - 5, y - 5, x + 5, y + 5), fill=(0, 200, 255), outline=(0, 0, 0))
             if grids:
-                font = ImageFont.load_default(size=max(16, image.width // 60))
-                for d, g in zip(detections, grids):
-                    label = f"{g['modules_fully_visible']}" + (f"+{g['modules_cut_by_crop_edge']}" if g["modules_cut_by_crop_edge"] else "")
-                    center = ((d.box[0] + d.box[2]) / 2, (d.box[1] + d.box[3]) / 2)
-                    draw.text(center, label, fill=(255, 255, 0), font=font, anchor="mm", stroke_width=3, stroke_fill=(0, 0, 0))
+                label_detections(overlay, detections, [grid_label(g) for g in grids])
             overlay_path = out / f"{slug(name)}__{slug(phrase)}.jpg"
             overlay.save(overlay_path, quality=88)
             row["overlay"] = str(overlay_path)

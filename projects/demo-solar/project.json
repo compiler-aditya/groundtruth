@@ -1,0 +1,26 @@
+{
+  "name": "Demo solar site: commissioning QA package",
+  "description": "A demonstration design package assembled for GroundTruth from public and synthetic captures (credits in samples/real/SOURCES.md). The design documents are written for the demo, with known discrepancies listed in expected_findings.json; the captures are real public photos, real CC0 footage with a scripted narration, and one synthetic drone still.",
+  "design": {
+    "quantities": "design/quantities.csv",
+    "equipment_schedule": "design/equipment_schedule.csv",
+    "drawing_register": "design/drawing_register.csv",
+    "site_notes": "design/site_notes.md"
+  },
+  "drawings": [
+    {"id": "DWG-E101", "path": "../../samples/drawing/E-101_synthetic.pdf", "label": "Electrical sheet received with the package (synthetic)"},
+    {"id": "DWG-E4", "path": "../../samples/real/drawing/uscg_bldg333_lighting_2nd_floor_1994.tiff", "label": "Lighting installation plan received with the package"}
+  ],
+  "captures": [
+    {"id": "DRN-A01", "type": "drone_still", "area": "Block A", "path": "../../samples/drone/synthetic_block_a.jpg", "label": "Nadir still over Block A (synthetic test image)"},
+    {"id": "DRN-C03", "type": "drone_still", "area": "Block C", "path": "../../samples/real/drone/calgary_rows_nadir.jpg", "label": "Nadir still over Block C rows C1-C7"},
+    {"id": "NP-01", "type": "nameplate_photo", "area": "Equipment yard", "path": "../../samples/real/nameplates/malmbergs_motor.jpg", "label": "Nameplate photo"},
+    {"id": "NP-02", "type": "nameplate_photo", "area": "Equipment yard", "path": "../../samples/real/nameplates/aeg_dfig_motor.jpg", "label": "Nameplate photo"},
+    {"id": "NP-03", "type": "nameplate_photo", "area": "Equipment yard", "path": "../../samples/real/nameplates/abb_motor.jpg", "label": "Nameplate photo"},
+    {"id": "NP-04", "type": "nameplate_photo", "area": "Equipment yard", "path": "../../samples/real/nameplates/induction_motor_angled.jpg", "label": "Nameplate photo"},
+    {"id": "NP-05", "type": "nameplate_photo", "area": "Equipment yard", "path": "../../samples/real/nameplates/teco_motor_worn.jpg", "label": "Nameplate photo"},
+    {"id": "NP-06", "type": "nameplate_photo", "area": "Substation", "path": "../../samples/real/nameplates/trafo_union_cast_resin_transformer.jpg", "label": "Nameplate photo"},
+    {"id": "NP-07", "type": "nameplate_photo", "area": "Substation", "path": "../../samples/real/nameplates/current_transformer.jpg", "label": "Nameplate photo"},
+    {"id": "WLK-01", "type": "walkthrough_video", "area": "Agrivoltaic test rows", "path": "../../samples/real/walk/real_walk.mp4", "label": "Narrated site walk by the field engineer"}
+  ]
+}
