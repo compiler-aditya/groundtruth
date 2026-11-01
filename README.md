@@ -48,6 +48,16 @@ Needs ffmpeg (`brew install ffmpeg`). Results are cached by tool, arguments and 
 
 Deploy: `scripts/build_web.py dist` assembles `dist/`: the app, the demo package with every capture's hash, the images, only the cache entries the demo needs, and no `.env`. Then run `vercel deploy dist --prod` and set `MODEL_API_KEY` in the Vercel project to turn on live runs.
 
+## Floor plan studio
+
+**Design a plan, then check the site against it.** At `#/plans` in the web app, anyone can lay out a home, an office or any building made of rooms:
+- Draw rooms by dragging, or type their exact sizes. Walls are worked out from where rooms touch.
+- Put doors and windows on walls, and furnish the rooms from a palette of 19 pieces.
+- Undo, redo and snapping are built in. Room areas, the total floor area and the door and window schedule are computed as you go.
+- Export a drawing sheet (PNG or SVG) with a title block, sheet number and revision, or the plan file as JSON. Plans are saved in the browser.
+
+The plan for what comes next is in [docs/floor-plan-studio.md](docs/floor-plan-studio.md): Meta's models as a design assistant, architect and client editing the same plan, and issued plans feeding GroundTruth's checks. The code is [public/plans.js](public/plans.js).
+
 ## Tests
 
 Offline tests, with every model call faked (no API key needed; `test_agent.py` needs the fetched samples):
