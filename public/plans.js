@@ -351,7 +351,7 @@ window.GTPlans = (() => {
   });
 
   /* ---------------- editor ---------------- */
-  const E = { plan: null, view: null, sel: null, tool: "select", undo: [], redo: [], drag: null, hover: null, saveTimer: 0, savedOk: true };
+  const E = { plan: null, view: null, sel: null, tool: "select", undo: [], redo: [], drag: null, hover: null, ghost: null, guides: [], space: false, saveTimer: 0, savedOk: true };
   const EDIT_ACTIONS = {};
 
   function renderEditor(app, id) {
@@ -361,7 +361,7 @@ window.GTPlans = (() => {
         <a class="btn" href="#/plans">← All plans</a></div>`;
       return;
     }
-    Object.assign(E, { plan, sel: null, tool: "select", undo: [], redo: [], drag: null, hover: null, view: null });
+    Object.assign(E, { plan, sel: null, tool: "select", undo: [], redo: [], drag: null, hover: null, ghost: null, guides: [], view: null });
     app.innerHTML = `
     <div class="pe" id="plan-editor">
       <div class="pe-top">
@@ -371,7 +371,7 @@ window.GTPlans = (() => {
         <span class="pe-status small muted" id="pe-status"></span>
         <span class="pe-spacer"></span>
         <span class="pe-zoom"><button class="btn small" data-pact="zoom-out" title="Zoom out">−</button><span id="pe-scale" class="small mono"></span>
-          <button class="btn small" data-pact="zoom-in" title="Zoom in">+</button><button class="btn small" data-pact="fit" title="Zoom to fit (F)">Fit</button></span>
+          <button class="btn small" data-pact="zoom-in" title="Zoom in">+</button><button class="btn small" data-pact="fit" title="Zoom to fit (0)">Fit</button></span>
       </div>
       <div class="pe-body">
         <div class="pe-tools" id="pe-tools"></div>
@@ -387,7 +387,7 @@ window.GTPlans = (() => {
     svg.addEventListener("pointermove", onPointerMove);
     svg.addEventListener("pointerup", onPointerUp);
     svg.addEventListener("pointercancel", onPointerUp);
-    requestAnimationFrame(() => { fitToScreen(); render(); });
+    requestAnimationFrame(() => { fitToScreen(); render(true); });
   }
 
   function canvasSize() {
@@ -418,24 +418,302 @@ window.GTPlans = (() => {
     fit: () => { fitToScreen(); render(); },
   });
 
-  // Pointer handling: in this first version, dragging anywhere pans the view.
+  /* ---------------- editing: tools, selection, snapping, undo ---------------- */
+  const icon = (d) => `<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">${d}</svg>`;
+  const TOOLS = [
+    ["select", "Select and move", "V", icon(`<path d="M5 3l11 6.5-4.6 1.4L9 15.5z"/>`)],
+    ["room", "Draw a room", "R", icon(`<rect x="3" y="4.5" width="14" height="11"/><path d="M3 9.5h5v6"/>`)],
+  ];
+  const HINTS = {
+    select: "Click a room to edit it · drag to move · drag its edges to resize · drag empty space to pan · scroll to zoom",
+    room: "Drag to draw a room. It snaps to the 10 cm grid and to other walls; hold Alt for free placement.",
+  };
+  const GRID = 0.1, MIN = 0.5;
+  const g = (v, step = GRID) => r2(Math.round(v / step) * step);
+  const LIST = { room: "rooms", opening: "openings", item: "items" };
+  const find = (kind, id) => E.plan[LIST[kind]]?.find((x) => x.id === id);
+  const selected = () => (E.sel ? find(E.sel.kind, E.sel.id) : null);
+  const snapshot = () => JSON.stringify({ rooms: E.plan.rooms, openings: E.plan.openings, items: E.plan.items });
+  function commit(before) {
+    if (before !== snapshot()) { E.undo.push(before); if (E.undo.length > 200) E.undo.shift(); E.redo = []; }
+    changed(true, true);
+  }
+  function restore(json) {
+    Object.assign(E.plan, JSON.parse(json));
+    if (E.sel && !selected()) E.sel = null;
+    changed(true, true);
+  }
+  function undo() { if (E.undo.length) { E.redo.push(snapshot()); restore(E.undo.pop()); } }
+  function redo() { if (E.redo.length) { E.undo.push(snapshot()); restore(E.redo.pop()); } }
+
+  function setTool(tool) {
+    E.tool = tool;
+    E.hover = null;
+    E.ghost = null;
+    if (tool !== "select") E.sel = null;
+    render(true);
+  }
+  function select(kind, id) { E.sel = kind ? { kind, id } : null; render(true); }
+
+  function roomTargets(axis, exceptId) {
+    const out = [];
+    for (const r of E.plan.rooms) if (r.id !== exceptId) axis === "x" ? out.push(r.x, r.x + r.w) : out.push(r.y, r.y + r.h);
+    return out;
+  }
+  // Snap one coordinate to the nearest wall within 8 px, else to the grid. Alt turns snapping off.
+  function snapEdge(v, targets, free) {
+    if (free) return { v: r2(v) };
+    const tol = 8 / E.view.s;
+    let best = null;
+    for (const t of targets) if (Math.abs(t - v) <= tol && (best === null || Math.abs(t - v) < Math.abs(best - v))) best = t;
+    return best !== null ? { v: r2(best), guide: best } : { v: g(v) };
+  }
+  // Snap a span [a, a + len] by whichever end is closest to a wall.
+  function snapSpan(a, len, targets, free) {
+    if (free) return { v: r2(a) };
+    const tol = 8 / E.view.s;
+    let best = null;
+    for (const t of targets) for (const off of [0, len]) {
+      const d = t - (a + off);
+      if (Math.abs(d) <= tol && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, guide: t };
+    }
+    return best ? { v: r2(a + best.d), guide: best.guide } : { v: g(a) };
+  }
+
+  function overlaps(plan) {
+    const out = [];
+    plan.rooms.forEach((a, i) => plan.rooms.slice(i + 1).forEach((b) => {
+      const x = Math.max(a.x, b.x), y = Math.max(a.y, b.y), w = Math.min(a.x + a.w, b.x + b.w) - x, h = Math.min(a.y + a.h, b.y + b.h) - y;
+      if (w > EPS && h > EPS) out.push({ a, b, x, y, w, h });
+    }));
+    return out;
+  }
+
+  function uniqueName(label, exceptId) {
+    const names = new Set(E.plan.rooms.filter((r) => r.id !== exceptId).map((r) => r.name));
+    if (!names.has(label)) return label;
+    for (let n = 2; ; n++) if (!names.has(`${label} ${n}`)) return `${label} ${n}`;
+  }
+
   function onPointerDown(ev) {
     if (ev.button !== 0 && ev.button !== 1) return;
-    $("#pc").setPointerCapture(ev.pointerId);
-    E.drag = { mode: "pan", start: toWorld(ev), view: { ...E.view } };
+    try { $("#pc").setPointerCapture(ev.pointerId); } catch { /* synthetic events have no capturable pointer */ }
+    const p = toWorld(ev);
+    if (ev.button === 1 || E.space) { E.drag = { mode: "pan", start: p, view: { ...E.view } }; return; }
+    if (E.tool === "room") {
+      const x = snapEdge(p.x, roomTargets("x"), ev.altKey), y = snapEdge(p.y, roomTargets("y"), ev.altKey);
+      E.drag = { mode: "draw", x0: x.v, y0: y.v, before: snapshot() };
+      return;
+    }
+    const target = ev.target.closest("[data-handle],[data-kind]");
+    if (target?.dataset.handle) {
+      const r = find("room", target.dataset.id);
+      const ops = Object.fromEntries(E.plan.openings.filter((o) => o.room === r.id).map((o) => [o.id, o.at]));
+      E.drag = { mode: "resize", handle: target.dataset.handle, id: r.id, start: p, orig: { ...r }, ops, before: snapshot() };
+      return;
+    }
+    if (target?.dataset.kind) {
+      const { kind, id } = target.dataset;
+      E.sel = { kind, id };
+      E.drag = { mode: "move", kind, id, start: p, orig: { ...find(kind, id) }, before: snapshot() };
+      render(true);
+      return;
+    }
+    if (E.sel) { E.sel = null; render(true); }
+    E.drag = { mode: "pan", start: p, view: { ...E.view } };
   }
+
   function onPointerMove(ev) {
     const d = E.drag;
     if (!d) return;
-    const p = toWorld(ev);
-    if (d.mode === "pan") { E.view = { ...d.view, tx: d.view.tx + p.px - d.start.px, ty: d.view.ty + p.py - d.start.py }; render(); }
+    const p = toWorld(ev), free = ev.altKey;
+    E.guides = [];
+    if (d.mode === "pan") { E.view = { ...d.view, tx: d.view.tx + p.px - d.start.px, ty: d.view.ty + p.py - d.start.py }; render(); return; }
+    if (d.mode === "draw") {
+      const x = snapEdge(p.x, roomTargets("x"), free), y = snapEdge(p.y, roomTargets("y"), free);
+      E.ghost = { x: Math.min(d.x0, x.v), y: Math.min(d.y0, y.v), w: r2(Math.abs(x.v - d.x0)), h: r2(Math.abs(y.v - d.y0)) };
+      if (x.guide !== undefined) E.guides.push({ o: "v", c: x.guide });
+      if (y.guide !== undefined) E.guides.push({ o: "h", c: y.guide });
+      render();
+      return;
+    }
+    const dx = p.x - d.start.x, dy = p.y - d.start.y;
+    if (d.mode === "move" && d.kind === "room") {
+      const r = find("room", d.id), o = d.orig;
+      const x = snapSpan(o.x + dx, o.w, roomTargets("x", r.id), free), y = snapSpan(o.y + dy, o.h, roomTargets("y", r.id), free);
+      r.x = x.v; r.y = y.v;
+      if (x.guide !== undefined) E.guides.push({ o: "v", c: x.guide });
+      if (y.guide !== undefined) E.guides.push({ o: "h", c: y.guide });
+    } else if (d.mode === "move" && d.kind === "item") {
+      const it = find("item", d.id);
+      it.cx = r2(d.orig.cx + (free ? dx : g(dx, 0.05)));
+      it.cy = r2(d.orig.cy + (free ? dy : g(dy, 0.05)));
+    } else if (d.mode === "resize") {
+      const r = find("room", d.id), o = d.orig, h = d.handle;
+      const xt = roomTargets("x", r.id), yt = roomTargets("y", r.id);
+      let left = o.x, right = o.x + o.w, top = o.y, bottom = o.y + o.h;
+      const take = (s, o2) => { if (s.guide !== undefined) E.guides.push({ o: o2, c: s.guide }); return s.v; };
+      if (h.includes("w")) left = Math.min(take(snapEdge(o.x + dx, xt, free), "v"), right - MIN);
+      if (h.includes("e")) right = Math.max(take(snapEdge(o.x + o.w + dx, xt, free), "v"), left + MIN);
+      if (h.includes("n")) top = Math.min(take(snapEdge(o.y + dy, yt, free), "h"), bottom - MIN);
+      if (h.includes("s")) bottom = Math.max(take(snapEdge(o.y + o.h + dy, yt, free), "h"), top + MIN);
+      Object.assign(r, { x: r2(left), y: r2(top), w: r2(right - left), h: r2(bottom - top) });
+      // keep doors and windows where they were in the world when the near edge moves
+      for (const op of E.plan.openings) if (op.room === r.id && op.id in d.ops) {
+        op.at = r2(d.ops[op.id] + (op.side === "n" || op.side === "s" ? o.x - r.x : o.y - r.y));
+      }
+    }
+    render();
   }
-  function onPointerUp() { E.drag = null; }
 
-  function changed(redraw = true) {
+  function onPointerUp() {
+    const d = E.drag;
+    E.drag = null;
+    E.guides = [];
+    if (!d || d.mode === "pan") return;
+    if (d.mode === "draw") {
+      const gh = E.ghost;
+      E.ghost = null;
+      if (gh && gh.w >= MIN && gh.h >= MIN) {
+        const r = { id: uid("r"), name: uniqueName("Room"), type: "other", ...gh };
+        E.plan.rooms.push(r);
+        E.tool = "select";
+        E.sel = { kind: "room", id: r.id };
+        commit(d.before);
+        setTimeout(() => $("#pe-side [data-prop=type]")?.focus(), 0);
+      } else render(true);
+      return;
+    }
+    commit(d.before);
+  }
+
+  function deleteSel() {
+    const s = E.sel;
+    if (!s) return;
+    const before = snapshot();
+    E.plan[LIST[s.kind]] = E.plan[LIST[s.kind]].filter((x) => x.id !== s.id);
+    if (s.kind === "room") E.plan.openings = E.plan.openings.filter((o) => o.room !== s.id);
+    E.sel = null;
+    commit(before);
+  }
+
+  function duplicateSel() {
+    const s = E.sel, src = selected();
+    if (!s || s.kind === "opening" || !src) return;
+    const before = snapshot();
+    if (s.kind === "room") {
+      // place the copy against the right-hand wall if that space is free, else offset it
+      const right = { ...src, id: uid("r"), name: uniqueName(src.name.replace(/ \d+$/, "")), x: r2(src.x + src.w) };
+      const free = !overlaps({ rooms: [...E.plan.rooms, right] }).some((o) => o.a.id === right.id || o.b.id === right.id);
+      const copy = free ? right : { ...right, x: r2(src.x + 0.5), y: r2(src.y + 0.5) };
+      E.plan.rooms.push(copy);
+      for (const op of E.plan.openings.filter((o) => o.room === src.id)) E.plan.openings.push({ ...op, id: uid("o"), room: copy.id });
+      E.sel = { kind: "room", id: copy.id };
+    } else {
+      const copy = { ...src, id: uid("i"), cx: r2(src.cx + 0.3), cy: r2(src.cy + 0.3) };
+      E.plan.items.push(copy);
+      E.sel = { kind: "item", id: copy.id };
+    }
+    commit(before);
+  }
+
+  function nudge(dx, dy) {
+    const s = selected();
+    if (!s || E.sel.kind === "opening") return;
+    const before = snapshot();
+    if (E.sel.kind === "room") { s.x = r2(s.x + dx); s.y = r2(s.y + dy); } else { s.cx = r2(s.cx + dx); s.cy = r2(s.cy + dy); }
+    commit(before);
+  }
+
+  Object.assign(EDIT_ACTIONS, {
+    tool: (el) => setTool(el.dataset.tool),
+    undo, redo,
+    "dup-sel": duplicateSel,
+    "del-sel": deleteSel,
+    "select-room": (el) => select("room", el.dataset.id),
+    deselect: () => select(null),
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (!$("#plan-editor")) return;
+    const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || "");
+    const mod = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
+    if (mod && (key === "z" || key === "y")) {
+      if (typing) return;
+      e.preventDefault();
+      key === "y" || e.shiftKey ? redo() : undo();
+      return;
+    }
+    if (typing) { if (e.key === "Escape" || e.key === "Enter") document.activeElement.blur(); return; }
+    if (mod && key === "d") { e.preventDefault(); duplicateSel(); return; }
+    if (mod || e.altKey) return;
+    const step = e.shiftKey ? 0.5 : GRID;
+    const arrows = { arrowleft: [-step, 0], arrowright: [step, 0], arrowup: [0, -step], arrowdown: [0, step] };
+    if (arrows[key] && E.sel) { e.preventDefault(); nudge(...arrows[key]); return; }
+    if (key === " ") { E.space = true; e.preventDefault(); return; }
+    if (key === "escape") {
+      if (E.drag?.mode === "draw") { E.drag = null; E.ghost = null; render(); }
+      else if (E.tool !== "select") setTool("select");
+      else select(null);
+    } else if (key === "delete" || key === "backspace") { e.preventDefault(); deleteSel(); }
+    else if (key === "0") EDIT_ACTIONS.fit();
+    else {
+      const tool = TOOLS.find(([, , k]) => k.toLowerCase() === key);
+      if (tool) setTool(tool[0]);
+    }
+  });
+  document.addEventListener("keyup", (e) => { if (e.key === " ") E.space = false; });
+
+  /* ---------------- painting ---------------- */
+  function overlay(X, Y, L) {
+    const out = [];
+    for (const o of overlaps(E.plan)) {
+      out.push(`<rect x="${X(o.x)}" y="${Y(o.y)}" width="${L(o.w)}" height="${L(o.h)}" fill="#d92d20" fill-opacity=".22" stroke="#d92d20" stroke-dasharray="4 3" pointer-events="none"/>`);
+    }
+    for (const gd of E.guides || []) {
+      out.push(gd.o === "v" ? `<line x1="${X(gd.c)}" y1="0" x2="${X(gd.c)}" y2="4000" stroke="#e8590c" stroke-dasharray="5 4" pointer-events="none"/>`
+        : `<line x1="0" y1="${Y(gd.c)}" x2="6000" y2="${Y(gd.c)}" stroke="#e8590c" stroke-dasharray="5 4" pointer-events="none"/>`);
+    }
+    if (E.ghost) {
+      const gh = E.ghost;
+      out.push(`<rect x="${X(gh.x)}" y="${Y(gh.y)}" width="${L(gh.w)}" height="${L(gh.h)}" fill="${ACCENT}" fill-opacity=".12" stroke="${ACCENT}" stroke-width="2" stroke-dasharray="6 4" pointer-events="none"/>`);
+      out.push(tag(X(gh.x + gh.w / 2), Y(gh.y) - 10, `${gh.w.toFixed(2)} × ${gh.h.toFixed(2)} m · ${fmtA(gh.w * gh.h)}`));
+    }
+    const s = selected();
+    if (s && E.sel.kind === "room") {
+      const x = X(s.x), y = Y(s.y), w = L(s.w), h = L(s.h);
+      out.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="${ACCENT}" stroke-width="2" pointer-events="none"/>`);
+      out.push(dimH(x, x + w, y - 22, fmtM(s.w)), dimV(y, y + h, x - 22, fmtM(s.h)));
+      const hs = 9, pts = { nw: [x, y], n: [x + w / 2, y], ne: [x + w, y], e: [x + w, y + h / 2], se: [x + w, y + h], s: [x + w / 2, y + h], sw: [x, y + h], w: [x, y + h / 2] };
+      for (const [k, [hx, hy]] of Object.entries(pts)) {
+        out.push(`<rect class="handle h-${k}" data-handle="${k}" data-id="${s.id}" x="${r2(hx - hs / 2)}" y="${r2(hy - hs / 2)}" width="${hs}" height="${hs}" fill="#fff" stroke="${ACCENT}" stroke-width="1.6"/>`);
+      }
+    } else if (s && E.sel.kind === "item") {
+      const [fw, fh] = footprint(s);
+      out.push(`<rect x="${X(s.cx - fw / 2) - 3}" y="${Y(s.cy - fh / 2) - 3}" width="${L(fw) + 6}" height="${L(fh) + 6}" fill="none" stroke="${ACCENT}" stroke-width="2" stroke-dasharray="5 3" pointer-events="none"/>`);
+    } else if (s && E.sel.kind === "opening") {
+      const og = openingGeom(E.plan, s);
+      if (og) out.push(og.o === "h" ? `<line x1="${X(og.a)}" y1="${Y(og.c)}" x2="${X(og.b)}" y2="${Y(og.c)}" stroke="${ACCENT}" stroke-width="6" stroke-opacity=".55" pointer-events="none"/>`
+        : `<line x1="${X(og.c)}" y1="${Y(og.a)}" x2="${X(og.c)}" y2="${Y(og.b)}" stroke="${ACCENT}" stroke-width="6" stroke-opacity=".55" pointer-events="none"/>`);
+    }
+    return out.join("");
+  }
+  const tag = (x, y, text) => `<g pointer-events="none"><rect x="${r2(x - text.length * 3.4 - 6)}" y="${r2(y - 12)}" width="${r2(text.length * 6.8 + 12)}" height="18" rx="9" fill="${ACCENT}"/>
+    <text x="${r2(x)}" y="${r2(y + 1)}" text-anchor="middle" font-size="11.5" font-weight="600" fill="#fff">${esc(text)}</text></g>`;
+  function dimH(x1, x2, y, text) {
+    return `<g pointer-events="none" stroke="${ACCENT}"><line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}"/><line x1="${x1}" y1="${y - 4}" x2="${x1}" y2="${y + 4}"/>
+      <line x1="${x2}" y1="${y - 4}" x2="${x2}" y2="${y + 4}"/></g>` + tag((x1 + x2) / 2, y, text);
+  }
+  function dimV(y1, y2, x, text) {
+    const cy = (y1 + y2) / 2;
+    return `<g pointer-events="none" stroke="${ACCENT}"><line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}"/><line x1="${x - 4}" y1="${y1}" x2="${x + 4}" y2="${y1}"/>
+      <line x1="${x - 4}" y1="${y2}" x2="${x + 4}" y2="${y2}"/></g><g transform="rotate(-90 ${r2(x)} ${r2(cy)})">${tag(x, cy, text)}</g>`;
+  }
+
+  function changed(redraw = true, sideToo = false) {
     clearTimeout(E.saveTimer);
     E.saveTimer = setTimeout(() => { E.savedOk = savePlan(E.plan); paintStatus(); }, 400);
-    if (redraw) render();
+    if (redraw) render(sideToo);
     else paintStatus();
   }
   function paintStatus() {
@@ -443,14 +721,17 @@ window.GTPlans = (() => {
     if (el) el.textContent = E.savedOk ? "Saved in this browser" : "Not saved: this browser blocks storage. Export the plan to keep it.";
   }
 
-  function render() {
+  function render(sideToo = false) {
     const svg = $("#pc");
     if (!svg || !E.plan) return;
     const { W, H } = canvasSize();
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-    svg.innerHTML = `<rect width="${W}" height="${H}" fill="${PAPER}"/>` + drawPlan(E.plan, E.view, { width: W, height: H, grid: true }) + scaleBar(W, H);
+    svg.setAttribute("class", `tool-${E.tool}${E.drag?.mode === "pan" ? " panning" : ""}`);
+    svg.innerHTML = `<rect width="${W}" height="${H}" fill="${PAPER}"/>` + drawPlan(E.plan, E.view, { width: W, height: H, grid: true, overlay }) + scaleBar(W, H);
     $("#pe-scale").textContent = `${Math.round(E.view.s)} px/m`;
-    paintSide();
+    $("#pe-hint").textContent = E.drag ? "" : HINTS[E.tool] || "";
+    paintTools();
+    paintSide(sideToo);
     paintStatus();
   }
 
@@ -461,15 +742,88 @@ window.GTPlans = (() => {
       <text x="${r2(x + m * s + 6)}" y="${y + 4}" font-size="11" fill="${INK}">${m} m</text></g>`;
   }
 
-  function paintSide() {
+  function paintTools() {
+    const box = $("#pe-tools");
+    const html = TOOLS.map(([id, label, key, ic]) => `<button class="pe-tool ${E.tool === id ? "on" : ""}" data-pact="tool" data-tool="${id}" title="${label} (${key})"
+      aria-label="${label}" aria-pressed="${E.tool === id}">${ic}<span>${key}</span></button>`).join("") +
+      `<span class="pe-sep"></span><button class="pe-tool" data-pact="undo" title="Undo (⌘Z)" aria-label="Undo" ${E.undo.length ? "" : "disabled"}>${icon(`<path d="M7 5L3.5 8.5 7 12"/><path d="M4 8.5h8a4 4 0 010 8H9"/>`)}</button>
+      <button class="pe-tool" data-pact="redo" title="Redo (⇧⌘Z)" aria-label="Redo" ${E.redo.length ? "" : "disabled"}>${icon(`<path d="M13 5l3.5 3.5L13 12"/><path d="M16 8.5H8a4 4 0 000 8h3"/>`)}</button>`;
+    if (box && box._html !== html) { box.innerHTML = html; box._html = html; }
+  }
+
+  // The side panel shows the selection's properties, or the plan summary. While a field in it has focus
+  // it is not rebuilt (that would steal the focus); only its live numbers are updated.
+  function paintSide(force) {
     const side = $("#pe-side");
     if (!side) return;
+    const key = E.sel ? `${E.sel.kind}:${E.sel.id}` : "plan";
+    if (!force && key === side._key && side.contains(document.activeElement)) { paintLive(); return; }
+    side._key = key;
+    const s = selected();
+    side.innerHTML = s && E.sel.kind === "room" ? roomPanel(s) : summaryPanel();
+    bindFields(side);
+    paintLive();
+  }
+
+  function paintLive() {
+    const s = selected();
+    $$("[data-live]", $("#pe-side")).forEach((el) => {
+      if (el.dataset.live === "area" && s) el.textContent = `${fmtA(area(s))} (${fmtM(s.w)} × ${fmtM(s.h)})`;
+    });
+  }
+
+  const num = (prop, label, value, extra = "") => `<label class="pe-field"><span>${label}</span><input type="number" step="0.1" data-prop="${prop}" value="${value}" ${extra}></label>`;
+  function roomPanel(r) {
+    return `<div class="pe-head"><h3>Room</h3><button class="link small" data-pact="deselect">Plan summary</button></div>
+      <label class="pe-field wide"><span>Name</span><input data-prop="name" value="${esc(r.name)}" maxlength="60"></label>
+      <label class="pe-field wide"><span>Type</span><select data-prop="type">${Object.entries(ROOM_TYPES).map(([k, [label]]) => `<option value="${k}" ${r.type === k ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+      <div class="pe-row">${num("w", "Width (m)", r.w, `min="${MIN}"`)}${num("h", "Depth (m)", r.h, `min="${MIN}"`)}</div>
+      <div class="pe-row">${num("x", "From left (m)", r.x)}${num("y", "From top (m)", r.y)}</div>
+      <p class="pe-area">Area <b data-live="area"></b></p>
+      <div class="pe-actions"><button class="btn small" data-pact="dup-sel" title="⌘D">Duplicate</button><button class="btn small danger" data-pact="del-sel" title="Delete key">Delete room</button></div>
+      <p class="tiny muted">Drag the room to move it or its edges to resize; arrow keys nudge by 10 cm (Shift: 50 cm). Doors and windows move with it.</p>`;
+  }
+
+  function summaryPanel() {
     const p = E.plan, doors = p.openings.filter((o) => o.type === "door").length, windows = p.openings.filter((o) => o.type === "window").length;
-    side.innerHTML = `<h3>Plan summary</h3>
+    const issues = overlaps(p).map((o) => `${o.a.name} and ${o.b.name} overlap by ${fmtA(o.w * o.h)}`);
+    return `<h3>Plan summary</h3>
       <div class="pe-stats"><div><b>${fmtA(totalArea(p))}</b><span>floor area</span></div><div><b>${p.rooms.length}</b><span>rooms</span></div>
         <div><b>${doors}</b><span>doors</span></div><div><b>${windows}</b><span>windows</span></div></div>
-      <h4>Rooms</h4>${p.rooms.length ? `<table class="pe-table">${p.rooms.map((r) => `<tr><td><span class="swatch" style="background:${(ROOM_TYPES[r.type] || ROOM_TYPES.other)[1]}"></span>${esc(r.name)}</td>
-        <td class="num">${fmtA(area(r))}</td></tr>`).join("")}</table>` : `<p class="small muted">No rooms yet.</p>`}`;
+      ${issues.length ? `<div class="pe-issues"><b>Check the plan</b><ul>${issues.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
+      <h4>Rooms</h4>${p.rooms.length ? `<table class="pe-table">${p.rooms.map((r) => `<tr data-pact="select-room" data-id="${r.id}" data-select><td><span class="swatch" style="background:${(ROOM_TYPES[r.type] || ROOM_TYPES.other)[1]}"></span>${esc(r.name)}</td>
+        <td class="num">${fmtA(area(r))}</td></tr>`).join("")}</table>` : `<p class="small muted">No rooms yet. Pick <b>Draw a room</b> (R) and drag on the grid.</p>`}`;
+  }
+
+  function bindFields(side) {
+    for (const el of $$("[data-prop]", side)) {
+      el.onfocus = () => { E.fieldBefore = snapshot(); };
+      el.oninput = () => applyField(el, false);
+      el.onchange = () => { applyField(el, true); commit(E.fieldBefore || snapshot()); E.fieldBefore = snapshot(); };
+    }
+  }
+
+  function applyField(el, final) {
+    const s = selected();
+    if (!s) return;
+    const prop = el.dataset.prop;
+    if (el.type === "number") {
+      let v = parseFloat(el.value);
+      if (!isFinite(v)) return;
+      if (prop === "w" || prop === "h") v = Math.max(MIN, v);
+      s[prop] = r2(v);
+      if (final) el.value = s[prop];
+    } else if (prop === "type" && E.sel.kind === "room") {
+      const old = (ROOM_TYPES[s.type] || ROOM_TYPES.other)[0];
+      // a room still called by its default or type name follows its new type
+      if (/^Room( \d+)?$/.test(s.name) || s.name.replace(/ \d+$/, "") === old) {
+        s.name = uniqueName(ROOM_TYPES[el.value][0], s.id);
+        const name = $("#pe-side [data-prop=name]");
+        if (name) name.value = s.name;
+      }
+      s.type = el.value;
+    } else s[prop] = el.value;
+    render();
   }
 
   window.addEventListener("resize", () => { if ($("#plan-editor") && E.view) render(); });
