@@ -68,6 +68,7 @@ The loop is [gt/planner.py](gt/planner.py); the browser streams it from `/api/pl
 | "Three-bedroom family house of about 110 m²…" | 8 rooms, 110.2 m², 0 errors, 0 warnings | 0 | 83 s | $0.29 |
 | "One-bedroom apartment of about 50 m² with a balcony" | 6 rooms, 51.1 m², 0 errors, 0 warnings | 2 (an entrance on a hallway wall too short; it moved the entrance to the living room) | 67 s | $0.25 |
 | Then "add a home office of about 9 m² next to the living room" | 7 rooms, 60.1 m², existing rooms unchanged | 0 | 22 s | $0.08 |
+| "A small dental clinic with a reception, a waiting room, two treatment rooms, a staff room, a WC and a store" | 8 rooms, 80.3 m², 0 errors, 0 warnings, typed as a clinic | 0 | 49 s | $0.20 |
 
 What comes next is in [docs/floor-plan-studio.md](docs/floor-plan-studio.md): reading a photo of a sketch, plan reviews with proposals to accept or reject, architect and client editing the same plan, and issued plans feeding GroundTruth's checks. The editor is [public/plans.js](public/plans.js).
 
