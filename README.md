@@ -56,7 +56,20 @@ Deploy: `scripts/build_web.py dist` assembles `dist/`: the app, the demo package
 - Undo, redo and snapping are built in. Room areas, the total floor area and the door and window schedule are computed as you go.
 - Export a drawing sheet (PNG or SVG) with a title block, sheet number and revision, or the plan file as JSON. Plans are saved in the browser.
 
-The plan for what comes next is in [docs/floor-plan-studio.md](docs/floor-plan-studio.md): Meta's models as a design assistant, architect and client editing the same plan, and issued plans feeding GroundTruth's checks. The code is [public/plans.js](public/plans.js).
+**Design with AI.** Describe a building ("a three-bedroom family house of about 110 m² with an open kitchen") or a change ("add a 9 m² home office next to the living room"), and Muse Wonder lays it out with the editor's own tools while you watch the rooms appear. The model proposes and the code measures:
+- [gt/floorplan.py](gt/floorplan.py) places each room against another (`next_to`, `side`, `align`) and refuses overlaps, saying which room and by how much.
+- It finds the shared wall for each door, and uses outside walls only for the entrance and windows.
+- `finish` is refused until `check_plan` finds no overlaps, an entrance, and every room reachable. Warnings flag missing windows, windows that a new room has covered, and rooms below rule-of-thumb sizes.
+
+The loop is [gt/planner.py](gt/planner.py); the browser streams it from `/api/plan/assist`.
+
+| Live run (Muse Wonder, 2026-11-02) | Result | Refusals | Time | Cost |
+|---|---|---|---|---|
+| "Three-bedroom family house of about 110 m²…" | 8 rooms, 110.2 m², 0 errors, 0 warnings | 0 | 83 s | $0.29 |
+| "One-bedroom apartment of about 50 m² with a balcony" | 6 rooms, 51.1 m², 0 errors, 0 warnings | 2 (an entrance on a hallway wall too short; it moved the entrance to the living room) | 67 s | $0.25 |
+| Then "add a home office of about 9 m² next to the living room" | 7 rooms, 60.1 m², existing rooms unchanged | 0 | 22 s | $0.08 |
+
+What comes next is in [docs/floor-plan-studio.md](docs/floor-plan-studio.md): reading a photo of a sketch, plan reviews with proposals to accept or reject, architect and client editing the same plan, and issued plans feeding GroundTruth's checks. The editor is [public/plans.js](public/plans.js).
 
 ## Tests
 

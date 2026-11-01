@@ -38,7 +38,7 @@ The editor is plain HTML, CSS and JavaScript like the rest of the app. Rooms are
 
 Same rule as the rest of GroundTruth: the model proposes, the code measures.
 
-- **Describe it:** "a three-bedroom house of about 110 m² with an open kitchen". Muse Wonder builds the plan by calling geometry tools (add a room, add a door, check the plan). The code rejects overlapping rooms, doors wider than their wall, and rooms with no way in, and tells the agent what to fix.
+- **Describe it (built):** "a three-bedroom house of about 110 m² with an open kitchen", or a change to the current plan. Muse Wonder builds the plan by calling geometry tools: add a room, connect two rooms, add the entrance and windows, check the plan. The code places everything, refuses overlapping rooms, doors that don't fit their wall and plans with rooms that can't be reached, and tells the agent what to fix. Furniture is not placed yet.
 - **Photo of a sketch:** Muse Spark 1.3 reads a hand sketch or an existing drawing into an editable plan.
 - **Review:** the code checks measurable things, such as rooms below a minimum size, doors narrower than 80 cm and bedrooms without a window. The model explains each issue in plain words and proposes an edit. The person accepts or rejects each proposal.
 
