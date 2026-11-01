@@ -285,6 +285,78 @@ window.GTPlans = (() => {
     return `<g class="item" data-kind="item" data-id="${it.id}" transform="rotate(${it.rot || 0} ${r2(X(it.cx))} ${r2(Y(it.cy))})">${body}</g>`;
   }
 
+  // Door, window and passage marks (D1, W1, P1) in plan order, as used on the sheet and in the schedule.
+  function marks(plan) {
+    const m = {}, n = { door: 0, window: 0, opening: 0 }, P = { door: "D", window: "W", opening: "P" };
+    for (const op of plan.openings) m[op.id] = P[op.type] + ++n[op.type];
+    return m;
+  }
+
+  // A drawing sheet: the plan with opening marks, the room and opening schedules, and a title block.
+  function sheetSvg(plan) {
+    const W = 1600, H = 1131, col = 1180, mk = marks(plan);
+    const view = fitView(plan, col - 60, H - 60, 60);
+    view.tx += 30; view.ty += 30;
+    const T = (x, y, text, size = 13, extra = "") => `<text x="${x}" y="${y}" font-size="${size}" fill="${INK}" ${extra}>${esc(text)}</text>`;
+    const markLayer = (X, Y) => plan.openings.map((op) => {
+      const og = openingGeom(plan, op);
+      if (!og) return "";
+      const off = 0.45 * (op.type === "door" && op.swing === "out" ? 1 : -1); // on the side away from the door's swing
+      const [x, y] = og.o === "h" ? [X(og.mid), Y(og.c + og.inward[1] * off)] : [X(og.c + og.inward[0] * off), Y(og.mid)];
+      return `<circle cx="${x}" cy="${y}" r="11" fill="#fff" stroke="${INK}"/><text x="${x}" y="${r2(y + 3.5)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${INK}">${mk[op.id]}</text>`;
+    }).join("");
+    const out = [`<rect width="${W}" height="${H}" fill="#fff"/><rect x="15" y="15" width="${W - 30}" height="${H - 30}" fill="none" stroke="${INK}" stroke-width="2"/>`,
+      `<line x1="${col}" y1="15" x2="${col}" y2="${H - 15}" stroke="${INK}" stroke-width="1.5"/>`, drawPlan(plan, view, { overlay: markLayer })];
+    let y = 52;
+    const x0 = col + 20, x1 = W - 35;
+    out.push(T(x0, y, "Room schedule", 15, 'font-weight="700"'));
+    y += 24;
+    for (const r of plan.rooms.slice(0, 18)) {
+      out.push(T(x0, y, fit(r.name, 210), 12.5), T(x0 + 230, y, (ROOM_TYPES[r.type] || ROOM_TYPES.other)[0], 11.5, 'fill-opacity=".65"'), T(x1, y, fmtA(area(r)), 12.5, 'text-anchor="end"'));
+      y += 19;
+    }
+    if (plan.rooms.length > 18) { out.push(T(x0, y, `+ ${plan.rooms.length - 18} more rooms`, 11.5)); y += 19; }
+    out.push(`<line x1="${x0}" y1="${y - 12}" x2="${x1}" y2="${y - 12}" stroke="${INK}"/>`, T(x0, y + 4, "Total floor area", 12.5, 'font-weight="700"'),
+      T(x1, y + 4, fmtA(totalArea(plan)), 12.5, 'text-anchor="end" font-weight="700"'));
+    y += 44;
+    out.push(T(x0, y, "Door and window schedule", 15, 'font-weight="700"'));
+    y += 22;
+    out.push(T(x0, y, "Mark", 11, 'font-weight="700"'), T(x0 + 50, y, "Type", 11, 'font-weight="700"'), T(x0 + 160, y, "Room", 11, 'font-weight="700"'), T(x1, y, "Width", 11, 'text-anchor="end" font-weight="700"'));
+    y += 18;
+    for (const op of plan.openings.slice(0, 24)) {
+      out.push(T(x0, y, mk[op.id], 12, 'font-weight="700"'), T(x0 + 50, y, OPENING_TYPES[op.type][0], 12), T(x0 + 160, y, fit(roomOf(plan, op.room)?.name || "", 150), 12),
+        T(x1, y, fmtM(op.width), 12, 'text-anchor="end"'));
+      y += 18;
+    }
+    if (plan.openings.length > 24) out.push(T(x0, y, `+ ${plan.openings.length - 24} more`, 11.5));
+    // title block
+    const tb = H - 275, rows = [["Project", plan.name], ["Building", KINDS[plan.kind] || ""], ["Drawing", "Floor plan"],
+      ["Sheet", plan.sheet || "A-101"], ["Revision", plan.revision || "A"], ["Date", new Date().toISOString().slice(0, 10)], ["Drawn by", plan.author || "—"]];
+    out.push(`<line x1="${col}" y1="${tb}" x2="${W - 15}" y2="${tb}" stroke="${INK}" stroke-width="1.5"/>`);
+    rows.forEach(([k, v], i) => out.push(T(x0, tb + 28 + i * 24, k, 11.5, 'fill-opacity=".65"'), T(x0 + 100, tb + 28 + i * 24, fit(String(v), 260), 14, i === 0 ? 'font-weight="700"' : "")));
+    const m = [0.5, 1, 2, 5, 10].find((v) => v * view.s >= 80) || 10, by = H - 40;
+    out.push(`<line x1="${x0}" y1="${by}" x2="${r2(x0 + m * view.s)}" y2="${by}" stroke="${INK}" stroke-width="3"/>`, T(r2(x0 + m * view.s + 8), by + 4, `${m} m`, 12),
+      T(x1, by + 4, "Made with GroundTruth", 11, 'text-anchor="end" fill-opacity=".6"'));
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="Helvetica, Arial, sans-serif">${out.join("")}</svg>`;
+  }
+
+  function download(blob, name) {
+    const url = URL.createObjectURL(blob);
+    Object.assign(document.createElement("a"), { href: url, download: name }).click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+  const slug = (plan) => `${(plan.name || "plan").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "plan"}-${plan.sheet || "A-101"}-rev-${plan.revision || "A"}`;
+  function exportPng(plan) {
+    const svg = sheetSvg(plan), img = new Image();
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = 3200; c.height = 2262;
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob((b) => download(b, `${slug(plan)}.png`), "image/png");
+    };
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  }
+
   function thumb(plan, W = 280, H = 180) {
     return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(plan.name)}"><rect width="${W}" height="${H}" fill="${PAPER}"/>${
       plan.rooms.length ? drawPlan(plan, fitView(plan, W, H, 14), { labels: false }) : `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-size="13" fill="#9a9890">Empty</text>`}</svg>`;
@@ -370,6 +442,9 @@ window.GTPlans = (() => {
         <select id="pe-kind" aria-label="Building type">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${plan.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select>
         <span class="pe-status small muted" id="pe-status"></span>
         <span class="pe-spacer"></span>
+        <details class="pe-menu" id="pe-export"><summary class="btn small">Export</summary><div class="pe-menu-list">
+          <button data-pact="export-png">Drawing sheet (PNG)</button><button data-pact="export-svg">Drawing sheet (SVG)</button>
+          <button data-pact="export-json">Plan file (JSON), to back up or move</button></div></details>
         <span class="pe-zoom"><button class="btn small" data-pact="zoom-out" title="Zoom out">−</button><span id="pe-scale" class="small mono"></span>
           <button class="btn small" data-pact="zoom-in" title="Zoom in">+</button><button class="btn small" data-pact="fit" title="Zoom to fit (0)">Fit</button></span>
       </div>
@@ -695,6 +770,10 @@ window.GTPlans = (() => {
     "dup-sel": duplicateSel,
     "del-sel": deleteSel,
     "select-room": (el) => select("room", el.dataset.id),
+    "export-png": () => { exportPng(E.plan); $("#pe-export").open = false; },
+    "export-svg": () => { download(new Blob([sheetSvg(E.plan)], { type: "image/svg+xml" }), `${slug(E.plan)}.svg`); $("#pe-export").open = false; },
+    "export-json": () => { download(new Blob([JSON.stringify(E.plan, null, 2)], { type: "application/json" }), `${slug(E.plan)}.json`); $("#pe-export").open = false; },
+    "select-opening": (el) => select("opening", el.dataset.id),
     "pick-item": (el) => { E.placing = el.dataset.type; E.hover = null; render(true); },
     rotate: () => { const it = selected(); if (!it || E.sel.kind !== "item") return; const before = snapshot(); it.rot = ((it.rot || 0) + 90) % 360; commit(before); },
     "flip-hinge": () => { const op = selected(), before = snapshot(); op.hinge = op.hinge === "end" ? "start" : "end"; commit(before); },
@@ -920,10 +999,18 @@ window.GTPlans = (() => {
       <p class="small muted" style="margin:8px 0 0">${p.items.length} pieces of furniture and fixtures</p>
       ${issues.length ? `<div class="pe-issues"><b>Check the plan</b><ul>${issues.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
       <h4>Rooms</h4>${p.rooms.length ? `<table class="pe-table">${p.rooms.map((r) => `<tr data-pact="select-room" data-id="${r.id}" data-select><td><span class="swatch" style="background:${(ROOM_TYPES[r.type] || ROOM_TYPES.other)[1]}"></span>${esc(r.name)}</td>
-        <td class="num">${fmtA(area(r))}</td></tr>`).join("")}</table>` : `<p class="small muted">No rooms yet. Pick <b>Draw a room</b> (R) and drag on the grid.</p>`}`;
+        <td class="num">${fmtA(area(r))}</td></tr>`).join("")}</table>` : `<p class="small muted">No rooms yet. Pick <b>Draw a room</b> (R) and drag on the grid.</p>`}
+      ${p.openings.length ? `<h4>Doors and windows</h4><table class="pe-table">${p.openings.map((op) => `<tr data-pact="select-opening" data-id="${op.id}" data-select>
+        <td><b>${marks(p)[op.id]}</b></td><td>${OPENING_TYPES[op.type][0]}</td><td>${esc(roomOf(p, op.room)?.name || "")}</td><td class="num">${fmtM(op.width)}</td></tr>`).join("")}</table>` : ""}
+      <h4>Drawing sheet</h4>
+      <div class="pe-row"><label class="pe-field"><span>Sheet number</span><input data-meta="sheet" value="${esc(p.sheet || "A-101")}" maxlength="12"></label>
+        <label class="pe-field"><span>Revision</span><input data-meta="revision" value="${esc(p.revision || "A")}" maxlength="4"></label></div>
+      <label class="pe-field wide"><span>Drawn by</span><input data-meta="author" value="${esc(p.author || "")}" maxlength="60" placeholder="Your name or practice"></label>
+      <p class="tiny muted">These go in the title block of the exported sheet (Export, top right).</p>`;
   }
 
   function bindFields(side) {
+    for (const el of $$("[data-meta]", side)) el.oninput = () => { E.plan[el.dataset.meta] = el.value.trim(); changed(false); };
     for (const el of $$("[data-prop]", side)) {
       el.onfocus = () => { E.fieldBefore = snapshot(); };
       el.oninput = () => applyField(el, false);

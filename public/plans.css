@@ -82,3 +82,10 @@ body.studio .foot { display: none; }
 .pe-palette button.on { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
 .pe-palette svg { flex: none; }
 #pc.tool-furniture { cursor: copy; }
+.pe-menu { position: relative; }
+.pe-menu summary { list-style: none; }
+.pe-menu summary::-webkit-details-marker { display: none; }
+.pe-menu-list { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .14); padding: 6px; display: grid; min-width: 250px; }
+.pe-menu-list button { text-align: left; background: none; border: 0; padding: 8px 10px; border-radius: 7px; cursor: pointer; font-size: 13.5px; color: var(--ink); }
+.pe-menu-list button:hover { background: var(--soft); }
