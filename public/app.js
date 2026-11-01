@@ -1,23 +1,49 @@
-/* GroundTruth web app: home (demo package, upload), live run (streamed events), findings. No framework. */
+/* GroundTruth web app: home (demo package), upload, run (streamed events on a checks board), findings. No framework. */
 "use strict";
 
 const $ = (sel, el = document) => el.querySelector(sel);
+const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const app = $("#app");
+
 const KIND = {
-  nonconformance: { label: "Non-conformance", plural: "Non-conformances", doc: "NCR", stat: "ncr" },
-  design_query: { label: "Design query", plural: "Design queries", doc: "RFI", stat: "rfi" },
-  reporting_discrepancy: { label: "Reporting discrepancy", plural: "Reporting discrepancies", doc: "OBS", stat: "obs" },
+  nonconformance: { label: "Non-conformance", plural: "Non-conformances", doc: "NCR", stat: "ncr", what: "Built work does not match the design.", paper: "Non-Conformance Report" },
+  design_query: { label: "Design query", plural: "Design queries", doc: "RFI", stat: "rfi", what: "The design itself is unclear or contradicts itself.", paper: "Request for Information" },
+  reporting_discrepancy: { label: "Reporting discrepancy", plural: "Reporting discrepancies", doc: "OBS", stat: "obs", what: "What someone reported is contradicted by the evidence.", paper: "Observation report" },
 };
-const TYPE_LABEL = { drone_still: "Drone still", nameplate_photo: "Nameplate", drawing_sheet: "Drawing", walkthrough_video: "Walkthrough video" };
+const KINDS = Object.keys(KIND);
+const TYPE = { drone_still: ["Drone stills", "Drone still"], nameplate_photo: ["Nameplates", "Nameplate"], drawing_sheet: ["Drawings", "Drawing"], walkthrough_video: ["Narrated walkthrough", "Walkthrough video"] };
+const PREFIX = { drone_still: "DRN", nameplate_photo: "NP", drawing_sheet: "DWG", walkthrough_video: "WLK" };
+const VERDICT = { pass: "Pass", read: "Read", confirmed: "Confirmed", short: "Short", over: "Over", mismatch: "Mismatch", review: "Review",
+  needs_review: "For review", wrong_row: "Wrong row", not_in_register: "Not in register", claims_contradicted: "Claims contradicted",
+  contradicted: "Contradicted", cannot_verify: "Can't verify", error: "Error" };
 const PASS = new Set(["pass", "read", "confirmed"]);
 const REVIEW = new Set(["review", "needs_review", "cannot_verify", "wrong_row", "not_in_register"]);
-const verdictClass = (v) => (PASS.has(v) ? "pass" : REVIEW.has(v) ? "review" : "fail");
+const tone = (v) => (PASS.has(v) ? "pass" : REVIEW.has(v) ? "review" : "fail");
+const FIELD = { equipment_type: "type", model_number: "model", frequency_hz: "frequency", sheet_number: "sheet number" };
+const fieldName = (f) => FIELD[f] || f.replace(/_/g, " ");
+const METHOD = { objects: "SAM 3.1 object count", tables: "SAM 3.1 table count", modules: "SAM 3.1 tables, then Spark 1.3 module grids", drawing_symbol: "Spark 1.3 points on the sheet" };
+const plural = (unit, n) => (!unit ? "" : +n === 1 ? unit : unit + "s");
+const signed = (n) => (n > 0 ? `+${n}` : `${n}`);
+const sentence = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : "");
+function modelName(m) {
+  if (/open/i.test(m)) return "Spark Open";
+  if (/wonder/i.test(m)) return "Muse Wonder";
+  const sam = /^sam-?(.*)$/i.exec(m);
+  if (sam) return `SAM ${sam[1]}`.trim();
+  const spark = /spark-?([\d.]+)/i.exec(m);
+  return spark ? `Spark ${spark[1]}` : m;
+}
+const modelChips = (ms) => [...new Set((ms || []).map(modelName))].map((m) => `<span class="chip model">${esc(m)}</span>`).join("");
 
-const S = { health: null, pkg: null, run: null, report: null, filter: "all", files: [] };
+const S = { health: null, pkg: null, run: null, report: null, filter: "all", homeTab: "captures", docTab: "quantities",
+  files: [], sched: null, u: { name: "My site check", code: "", quantities: "", register: "", notes: "" }, uploadThumbs: {} };
+const liveReady = () => S.health?.keys?.meta !== false;
 
-/* ---------------- lightbox ---------------- */
+/* ---------------- lightbox, clicks ---------------- */
 function openImage(src, caption) {
+  if (!src) return;
   const box = $("#lightbox");
   $("img", box).src = src;
   $("p", box).textContent = caption || "";
@@ -25,158 +51,289 @@ function openImage(src, caption) {
 }
 $("#lightbox").addEventListener("click", () => ($("#lightbox").hidden = true));
 document.addEventListener("keydown", (e) => e.key === "Escape" && ($("#lightbox").hidden = true));
+
+const ACTIONS = {
+  live: () => startRun({ mode: "live" }),
+  replay: () => startRun({ mode: "replay" }),
+  skip: () => S.run && (S.run.skip = true),
+  findings: () => (location.hash = "#/findings"),
+  "back-run": () => (location.hash = "#/run"),
+  "back-upload": () => (location.hash = "#/upload"),
+  home: () => (location.hash = "#/"),
+  download: downloadReport,
+  "toggle-doc": (el) => el.closest(".doc").classList.toggle("open"),
+  "copy-doc": copyDraft,
+  example: useExample,
+  "add-row": () => { S.sched.push({}); renderSched(); },
+  "rm-row": (el) => { S.sched.splice(+el.dataset.i, 1); if (!S.sched.length) S.sched.push({}); renderSched(); },
+  "load-csv": loadScheduleCsv,
+  "rm-file": (el) => { S.files.splice(+el.dataset.i, 1); renderFiles(); },
+  "pick-files": () => $("#file-in")?.click(),
+  "go-upload": submitUpload,
+};
 document.addEventListener("click", (e) => {
-  const img = e.target.closest("img[data-zoom]");
-  if (img) openImage(img.dataset.full || img.src, img.dataset.caption || img.alt);
+  const zoom = e.target.closest("[data-zoom]");
+  if (zoom) return openImage(zoom.dataset.full || zoom.getAttribute("src"), zoom.dataset.caption || zoom.alt || "");
+  const el = e.target.closest("[data-act],[data-tab],[data-doc-tab],[data-f],[data-jump]");
+  if (!el || el.disabled) return;
+  if (el.dataset.tab) return setHomeTab(el.dataset.tab);
+  if (el.dataset.docTab) return setDocTab(el.dataset.docTab);
+  if (el.dataset.f) return setFilter(el.dataset.f);
+  if (el.dataset.jump) return jumpTo(el.dataset.jump);
+  ACTIONS[el.dataset.act]?.(el, e);
 });
 
 /* ---------------- routing ---------------- */
 window.addEventListener("hashchange", route);
 async function route() {
   const hash = location.hash || "#/";
-  if (hash.startsWith("#/run")) return renderRun();
-  if (hash.startsWith("#/findings")) return renderFindings();
-  if (hash.startsWith("#/upload")) { await renderHome(); return $("#upload")?.scrollIntoView(); }
-  return renderHome();
+  const page = ["run", "findings", "upload", "how"].find((p) => hash.startsWith(`#/${p}`)) || "home";
+  $$(".top nav a[data-nav]").forEach((a) => a.classList.toggle("on", a.dataset.nav === page));
+  if (page === "run") return renderRun();
+  if (page === "findings") return renderFindings();
+  if (page === "upload") return renderUpload();
+  await renderHome();
+  if (page === "how") $("#how")?.scrollIntoView({ behavior: "smooth" });
+  else window.scrollTo({ top: 0, behavior: "instant" });
 }
 
-/* ---------------- home ---------------- */
 async function load() {
   if (!S.health) S.health = await fetch("/api/health").then((r) => r.json()).catch(() => ({}));
-  if (!S.pkg) S.pkg = await fetch("/api/packages/demo-solar").then((r) => r.json());
+  if (!S.pkg) S.pkg = await fetch("/api/packages/demo-solar").then((r) => (r.ok ? r.json() : null)).catch(() => null);
 }
 
 function table(rows, cols) {
   if (!rows?.length) return "<p class='muted small'>None in this package.</p>";
   cols = cols || Object.keys(rows[0]);
-  return `<div class="table-wrap"><table><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>${rows
+  return `<div class="table-wrap"><table><tr>${cols.map((c) => `<th>${esc(c.replace(/_/g, " "))}</th>`).join("")}</tr>${rows
     .map((r) => `<tr>${cols.map((c) => `<td>${esc(r[c])}</td>`).join("")}</tr>`).join("")}</table></div>`;
 }
 
+/* ---------------- home ---------------- */
+const FLOW = [
+  ["📋", "Read the design package", "Quantities, equipment schedule, drawing register and site notes.", []],
+  ["🧠", "Plan the checks", "Muse Wonder works out which capture proves which design item, then calls the tools in parallel.", ["Muse Wonder"]],
+  ["📷", "Measure", "SAM 3.1 counts, Spark 1.3 reads plates and drawings, Spark Open hears and watches the walk.", ["SAM 3.1", "Spark 1.3", "Spark Open"]],
+  ["⚖️", "Decide in code", "Each verdict comes from the measurement and the design tolerance, not from a model's opinion.", []],
+  ["📝", "Report with evidence", "Every failure becomes a finding with its images and a drafted NCR, RFI or observation report.", ["Spark 1.3"]],
+];
+const RULES = [
+  ["The model chooses the checks; code decides the verdict.", "Counts are compared with the design quantity and tolerance, title blocks with the register, plates field by field with the schedule."],
+  ["Findings can't be invented.", "A finding must point at a measurement that failed, and takes its facts and images from it. The agent can't finish while a failure has no finding."],
+  ["Follow-ups are built in.", "If a plate's manufacturer doesn't match the schedule row the agent picked, it has to try another row. If two models disagree on a count, a person decides."],
+  ["Drafts must stay on topic.", "A draft has to name its subject and its measured numbers, or it is written again. Twice wrong, and a plain template is used and labelled."],
+];
+const MODELS = [
+  ["Muse Wonder", "The agent: plans, calls up to 14 tools in one turn, follows up, records findings."],
+  ["SAM 3.1", "Counts modules, tables and objects on drone stills, and inside the region a narrated claim is about."],
+  ["Muse Spark 1.3", "Reads nameplates and title blocks, counts drawing symbols and module grids, judges claims on stills, drafts documents."],
+  ["Muse Spark Open", "On Baseten: hears and watches each walkthrough clip, and flags where the narration and the picture disagree."],
+];
+
 async function renderHome() {
-  app.innerHTML = `<p class="muted" style="padding:40px 0">Loading…</p>`;
+  if (!S.pkg) app.innerHTML = `<p class="muted" style="padding:60px 0">Loading…</p>`;
   await load();
-  const p = S.pkg;
-  const keys = S.health?.keys || {};
-  const liveReady = keys.meta !== false;
-  const planted = p.planted;
+  const p = S.pkg, live = liveReady();
   app.innerHTML = `
   <section class="hero">
     <div>
+      <div class="eyebrow">Construction QA agent, built on Meta's models</div>
       <h1>Check the site against the design, with evidence.</h1>
-      <p class="lead">GroundTruth reads a project's design package and the captures the site already produces (drone stills,
-      nameplate photos, drawings, a narrated phone walk). A Muse Wonder agent checks each design item with SAM 3.1,
-      Muse Spark 1.3 and Muse Spark Open, records every failure as a finding tied to its evidence, and Spark 1.3 drafts the
-      NCR, RFI or observation report.</p>
+      <p class="lead">Give GroundTruth a project's design package and the photos and videos the site already produces. An agent works out
+        what to check, measures it with Meta's vision models, and hands back every problem with its proof and a drafted report.</p>
       <div class="ctas">
-        <button class="btn primary" id="go-live" ${liveReady ? "" : "disabled"}>▶ Run the agent live on the demo</button>
-        <button class="btn" id="go-replay">Play a recorded run</button>
+        <button class="btn primary big" data-act="live" ${live ? "" : "disabled"}>▶ Watch it run live</button>
+        <button class="btn big" data-act="replay">Play a recorded run</button>
       </div>
-      <p class="small faint" style="margin-top:10px">Live: Muse Wonder decides every step in real time (about a minute; measurements come from
-      a cache of earlier model runs on the same files). Recorded: a real run played back, no API calls.${liveReady ? "" : " Live runs are off on this deployment (no API key)."}</p>
-    </div>
-    <div class="flow"><ol>
-      <li><div><b>Read the design package</b><span>Quantities, equipment schedule, drawing register, site notes</span></div></li>
-      <li><div><b>Plan and run the checks</b><span>Muse Wonder calls tools in parallel and follows up on what it finds</span></div></li>
-      <li><div><b>Measure with Meta's models</b><span>SAM 3.1 counts, Spark 1.3 reads plates and drawings, Spark Open hears and sees the walk</span></div></li>
-      <li><div><b>Verdicts in code, findings with evidence</b><span>A finding can only rest on a measurement that failed</span></div></li>
-      <li><div><b>Draft the paperwork</b><span>NCR, RFI or observation report, grounding-checked, for an engineer to sign</span></div></li>
-    </ol></div>
-  </section>
-
-  <section class="block panel">
-    <div class="panel-head">
-      <div><h2>Demo package: ${esc(p.name)}</h2>
-        <p class="muted small" style="margin:0;max-width:760px">${esc(p.description)}</p>
-        <div class="facts-row">
-          <span class="chip">${p.captures.filter((c) => c.type !== "drawing_sheet").length} captures</span>
-          <span class="chip">${p.captures.filter((c) => c.type === "drawing_sheet").length} drawings</span>
-          <span class="chip">${p.quantities.length} quantity items</span>
-          <span class="chip">${p.schedule.length} schedule rows</span>
-          <span class="chip">${p.register.length} register rows</span>
-          ${planted ? `<span class="chip review">${planted.nonconformance.length + planted.design_query.length + planted.reporting_discrepancy.length} planted problems</span>` : ""}
-        </div>
+      <p class="small muted" style="margin:12px 0 0">Live: Muse Wonder makes every decision in real time, in about a minute.
+        Recorded: a real run played back, no API calls. Or <a href="#/upload">try your own photos</a>.</p>
+      ${live ? "" : `<p class="note-off">Live runs are off on this deployment (no API key). The recorded run still works.</p>`}
+      <div class="proof">
+        <div><b>9 / 9</b>planted problems found</div>
+        <div><b>7 / 7</b>correct items passed</div>
+        <div><b>≈ 1 min</b>and $0.44 per live run</div>
+        <div><b>4</b>Meta models</div>
       </div>
     </div>
-    <div class="captures">${p.captures.map((c) => `
-      <div class="capture" title="${esc(c.credit)}${c.license ? " · " + esc(c.license) : ""}">
-        <img src="${esc(c.thumb)}" alt="${esc(c.id)}" loading="lazy" data-zoom data-caption="${esc(c.id)} · ${esc(c.label)} · ${esc(c.credit)} ${c.license ? "(" + esc(c.license) + ")" : ""}">
-        <div class="cap"><b>${esc(c.id)}</b>${esc(TYPE_LABEL[c.type] || c.type)}${c.area ? " · " + esc(c.area) : ""}</div>
-      </div>`).join("")}
+    <div class="how" aria-label="How it works">${FLOW.map(([ic, title, text, models], i) => `
+      <div class="step ${i === 1 ? "hl" : ""}"><div class="ic" aria-hidden="true">${ic}</div><div><b>${esc(title)}</b><span>${esc(text)}</span>
+        ${models.length ? `<div class="models">${models.map((m) => `<span class="chip ${i === 1 ? "accent" : "model"}">${esc(m)}</span>`).join("")}</div>` : ""}</div></div>`).join("")}
     </div>
-    <div class="video">
-      <video src="${esc(p.walk_video)}" controls preload="none" poster="/thumbs/demo-solar/WLK-01.jpg"></video>
-      <div><b>WLK-01, the narrated walk.</b><p class="muted small">Real CC0 drone footage of two agrivoltaic plants (Tobi Kellner) with a
-      scripted narration: three true claims and three false ones. The agent has to tell which is which from the pixels.</p></div>
-    </div>
-    <details><summary>Design documents the agent reads</summary>
-      <h4>Quantities</h4>${table(p.quantities)}
-      <h4>Equipment schedule</h4>${table(p.schedule)}
-      <h4>Drawing register</h4>${table(p.register)}
-      <h4>Site notes</h4><pre class="mono" style="white-space:pre-wrap">${esc(p.site_notes)}</pre>
-    </details>
-    ${planted ? `<details><summary>Answer key (what a correct run should find)</summary>
-      ${["nonconformance", "design_query", "reporting_discrepancy"].map((k) => `<h4>${KIND[k].plural}</h4><ul>${planted[k].map((x) => `<li><b>${esc(x.ref)}</b>: ${esc(x.what)}</li>`).join("")}</ul>`).join("")}
-      <h4>Should pass</h4><p class="small">${esc(planted.pass.join(" · "))}</p></details>` : ""}
   </section>
-
-  <section class="block panel" id="upload">
-    <h2>Try your own photos</h2>
-    <p class="muted small" style="margin-top:0">Add nameplate photos, drone stills or drawing sheets (photos are shrunk in your browser before upload),
-    plus whatever design you have: an equipment schedule, quantities, a drawing register. The agent works with what it gets.
-    ${S.health?.video_uploads ? "" : "Video is not available on this deployment."} Up to ${S.health?.max_files || 8} files.</p>
-    <div class="drop" id="drop">Drop files here or <u>choose files</u><input type="file" id="file-in" multiple accept="image/*,.pdf${S.health?.video_uploads ? ",video/*" : ""}" hidden></div>
-    <div class="files" id="files"></div>
+  ${p ? packageSection(p) : ""}
+  <section class="block" id="how">
+    <div class="eyebrow">How it works</div>
+    <h2 class="section">The model chooses what to check. Code decides the verdict.</h2>
+    <p class="muted" style="max-width:760px;margin:0 0 18px">Construction QA has to hold up in a dispute, so every number on a finding traces back to a
+      measurement, a model and an image. The agent's freedom is in planning and following up, not in deciding pass or fail.</p>
     <div class="grid2">
-      <div>
-        <label class="field">Project name</label><input id="u-name" value="My site check">
-        <label class="field">Equipment schedule (CSV, needs a <span class="mono">tag</span> column)</label>
-        <textarea id="u-schedule" placeholder="tag,equipment_type,manufacturer,model_number,voltage,power,phase,frequency_hz&#10;P-101-M,induction motor,ABB,M3BP 160,400 V,11 kW,3,50"></textarea>
-        <label class="field">Site notes (design intent, optional)</label>
-        <textarea id="u-notes" placeholder="## Block A&#10;8 rows of 24 modules..."></textarea>
-      </div>
-      <div>
-        <label class="field">Quantities (CSV, optional)</label>
-        <textarea id="u-quantities" placeholder="item_id,area,description,count_what,unit,design_qty,method,tolerance_pct&#10;Q-1,Block A,PV modules in Block A,solar panel,module,192,objects,0"></textarea>
-        <label class="field">Drawing register (CSV, optional)</label>
-        <textarea id="u-register" placeholder="sheet_number,title,current_revision,drawing_id&#10;E-101,FIRST FLOOR POWER PLAN,3,DWG-01"></textarea>
-        ${S.health?.upload_code_required ? `<label class="field">Access code</label><input id="u-code" placeholder="from the project submission">` : ""}
+      <div class="panel"><h3 style="margin-top:0">Built to be checked</h3>
+        ${RULES.map(([b, t]) => `<p style="margin:0 0 12px"><b>${esc(b)}</b> <span class="muted">${esc(t)}</span></p>`).join("")}</div>
+      <div class="panel"><h3 style="margin-top:0">Meta's models, and what each one does</h3>
+        <div class="table-wrap"><table class="models-table">${MODELS.map(([m, t]) => `<tr><td>${esc(m)}</td><td>${esc(t)}</td></tr>`).join("")}</table></div>
+        <p class="small muted" style="margin:12px 0 0">What we measured about each model, including where it failed and how we worked around it, is in the
+          <a href="https://github.com/compiler-aditya/groundtruth#how-it-uses-metas-models-and-what-we-learned" target="_blank" rel="noopener">README</a>.</p></div>
+    </div>
+  </section>`;
+}
+
+function packageSection(p) {
+  const n = (t) => p.captures.filter((c) => c.type === t).length;
+  const problems = p.planted ? KINDS.reduce((sum, k) => sum + p.planted[k].length, 0) : 0;
+  const tabs = [["captures", `What the site captured (${p.captures.length})`], ["design", "The design to check against"],
+    ...(p.planted ? [["key", "Answer key (spoiler)"]] : [])];
+  return `<section class="block panel" id="package">
+    <div class="pkg-head">
+      <div><div class="eyebrow">The demo package</div><h2 class="section">${esc(p.name)}</h2>
+        <p class="muted" style="margin:0;max-width:760px">${esc(p.description)}</p></div>
+      <div class="facts-row">
+        <span class="chip">${n("drone_still")} drone stills</span><span class="chip">${n("nameplate_photo")} nameplates</span>
+        <span class="chip">${n("drawing_sheet")} drawings</span><span class="chip">${n("walkthrough_video")} narrated walk</span>
       </div>
     </div>
-    <p class="small faint">Uploaded drawings get IDs DWG-01, DWG-02… in upload order; use those in the register's drawing_id column.
-    Methods: objects, tables, modules (drone stills) or drawing_symbol (drawings).</p>
-    <button class="btn primary" id="go-upload" ${liveReady ? "" : "disabled"}>▶ Run the agent on my files</button>
+    <div class="tabs" role="tablist" id="home-tabs">${tabs.map(([k, label]) =>
+      `<button role="tab" data-tab="${k}" class="${k === "key" ? "spoiler " : ""}${S.homeTab === k ? "on" : ""}">${esc(label)}</button>`).join("")}</div>
+    <div id="tab-body">${homeTab(p)}</div>
+    <div class="cta-row"><span class="muted">${problems ? `${problems} problems are hidden in this package. Can the agent find them?` : ""}</span>
+      <div class="ctas"><button class="btn primary" data-act="live" ${liveReady() ? "" : "disabled"}>▶ Run it live</button>
+      <button class="btn" data-act="replay">Play the recorded run</button></div></div>
   </section>`;
+}
 
-  $("#go-live").onclick = () => startRun({ mode: "live" });
-  $("#go-replay").onclick = () => startRun({ mode: "replay" });
-  setupUpload();
+function setHomeTab(tab) {
+  S.homeTab = tab;
+  $$("#home-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+  $("#tab-body").innerHTML = homeTab(S.pkg);
+}
+
+function setDocTab(tab) {
+  S.docTab = tab;
+  $("#tab-body").innerHTML = homeTab(S.pkg);
+}
+
+const credit = (c) => (c.license === "own work" ? "Synthetic test image" : [c.credit, c.license].filter(Boolean).join(" · "));
+const DOCS = [
+  ["quantities", "Quantities", "How many of each thing the design calls for, where, and how to count it."],
+  ["schedule", "Equipment schedule", "What every tagged piece of equipment should be: make, model and ratings."],
+  ["register", "Drawing register", "The current sheet number, title and revision of every drawing."],
+  ["notes", "Site notes", "Design intent in words, which the agent reads for context."],
+];
+
+function homeTab(p) {
+  if (S.homeTab === "design") {
+    const doc = DOCS.find(([k]) => k === S.docTab) || DOCS[0];
+    const body = { quantities: () => table(p.quantities), schedule: () => table(p.schedule), register: () => table(p.register),
+      notes: () => `<pre class="notes">${esc(p.site_notes)}</pre>` }[doc[0]]();
+    return `<div class="tabs sub">${DOCS.map(([k, label]) => `<button data-doc-tab="${k}" class="${doc[0] === k ? "on" : ""}">${label}</button>`).join("")}</div>
+      <p class="small muted" style="margin:0 0 10px">${esc(doc[2])}</p>${body}`;
+  }
+  if (S.homeTab === "key" && p.planted) {
+    const k = p.planted;
+    return `<p class="small muted" style="margin:0 0 4px">What a correct run should find, written by hand from the samples. Try a run first, then compare.</p>
+      <div class="overview">${KINDS.map((kind) => `<div class="ov ${kind}"><h3>${KIND[kind].plural}<span>${k[kind].length}</span></h3><p>${KIND[kind].what}</p>
+        ${k[kind].map((x) => `<div class="small key-item"><b>${esc(x.ref)}</b>: ${esc(x.what)}</div>`).join("")}</div>`).join("")}</div>
+      <p class="small" style="margin:0"><b>Should pass:</b> ${k.pass.map((x) => `<span class="chip pass">${esc(x)}</span>`).join(" ")}</p>`;
+  }
+  const groups = ["drone_still", "nameplate_photo", "drawing_sheet"].map((t) => [t, p.captures.filter((c) => c.type === t)]).filter(([, cs]) => cs.length);
+  const walk = p.captures.find((c) => c.type === "walkthrough_video");
+  return `<div class="groups">${groups.map(([t, cs]) => `<div class="group"><h3>${TYPE[t][0]}</h3><div class="captures">${cs.map((c) => `
+      <div class="capture" data-zoom data-full="${esc(c.thumb)}" data-caption="${esc(`${c.id} · ${c.label}${credit(c) ? ` · ${credit(c)}` : ""}`)}">
+        <img src="${esc(c.thumb)}" alt="${esc(`${c.id}: ${c.label}`)}" loading="lazy">
+        <div class="cap"><b>${esc(c.id)}</b>${esc(c.area || c.label)}<div class="faint tiny">${esc(credit(c))}</div></div>
+      </div>`).join("")}</div></div>`).join("")}
+    ${walk ? `<div class="group"><h3>${TYPE.walkthrough_video[0]}</h3><div class="walk">
+      <video src="${esc(p.walk_video)}" controls preload="none" poster="${esc(walk.thumb)}"></video>
+      <div><b>${esc(walk.id)}: ${esc(walk.label)}</b>
+        <p class="muted small">Real CC0 drone footage of two agrivoltaic plants (Tobi Kellner) with a scripted narration. Three of the spoken
+          claims are false. The agent has to tell which ones from the pictures, and say where in the video it looked.</p>
+        <p class="small muted">Spark Open hears and watches each clip; every claim is then re-checked by Spark 1.3 (and SAM 3.1 for counts) on full-resolution stills.</p></div>
+    </div></div>` : ""}</div>`;
 }
 
 /* ---------------- upload ---------------- */
-function guessType(file) {
-  if (file.type === "application/pdf" || /\.(pdf|tiff?)$/i.test(file.name)) return "drawing_sheet";
-  if (file.type.startsWith("video/")) return "walkthrough_video";
-  if (/drone|dji|aerial|nadir/i.test(file.name)) return "drone_still";
-  return "nameplate_photo";
-}
+const SCHED_COLS = ["tag", "equipment_type", "manufacturer", "model_number", "voltage", "power", "phase", "frequency_hz"];
+const SCHED_HEAD = ["Tag", "Equipment type", "Manufacturer", "Model", "Voltage", "Power", "Phase", "Hz"];
+const SCHED_PH = ["P-101-M", "induction motor", "ABB", "M3BP 160", "400 V", "11 kW", "3", "50"];
+const EXAMPLE = [["NP-01", "P-101-M"], ["NP-02", "CH-201-M"], ["NP-03", "CP-301-M"]];
 
-function setupUpload() {
+async function renderUpload() {
+  await load();
+  const h = S.health || {}, max = h.max_files || 8;
+  if (!S.sched) S.sched = [{}];
+  app.innerHTML = `
+  <div class="page-head"><div class="eyebrow">Try your own</div><h1>Check your own photos against your design</h1>
+    <p class="muted" style="max-width:760px;margin:0">Upload equipment nameplates, drone stills or drawing sheets and say what the design expects.
+    The agent matches each photo to the right design row from what it shows, checks it, and reports what doesn't match.
+    A run takes about a minute.</p></div>
+  <div class="steps">
+    <div class="ustep"><div class="n">1</div><div>
+      <h2>Add photos</h2>
+      <p class="muted small" style="margin:0 0 10px">Nameplate photos, drone stills taken from straight above, or drawing sheets as PDF. Up to ${max} files;
+        photos are shrunk in your browser before upload.${h.video_uploads ? "" : " Video can't be uploaded on this deployment."}</p>
+      <div class="drop" id="drop" role="button" tabindex="0" data-act="pick-files"><b>Drop files here</b> or click to choose
+        <input type="file" id="file-in" multiple accept="image/*,.pdf,.tif,.tiff${h.video_uploads ? ",video/*" : ""}" hidden></div>
+      <div class="files" id="files"></div>
+      <p class="small" style="margin:10px 0 0">No photos to hand? <button class="link" data-act="example">Use three example nameplates</button>
+        <span class="muted">(with their schedule rows, in a different order, so the agent has to match them)</span></p>
+    </div></div>
+    <div class="ustep"><div class="n">2</div><div>
+      <h2>Say what the design expects</h2>
+      <p class="muted small" style="margin:0 0 10px">One row per piece of equipment. Leave a cell empty if the design doesn't specify it.
+        The photos don't need to be labelled: the agent works out which plate belongs to which row.</p>
+      <div class="table-wrap"><table class="sched"><thead><tr>${SCHED_HEAD.map((x) => `<th>${x}</th>`).join("")}<th></th></tr></thead><tbody id="sched-body"></tbody></table></div>
+      <div style="display:flex;gap:8px;margin-top:8px"><button class="btn small" data-act="add-row">+ Add a row</button></div>
+      <details class="more"><summary>Paste the schedule as CSV instead</summary>
+        <textarea id="sched-csv" placeholder="${esc(SCHED_COLS.join(","))}&#10;${esc(SCHED_PH.join(","))}"></textarea>
+        <button class="btn small" data-act="load-csv" style="margin-top:6px">Load into the table</button> <span class="small" id="csv-msg"></span>
+      </details>
+      <details class="more"><summary>More design documents (optional): quantities, drawing register, site notes</summary>
+        <div class="grid2">
+          <div><label class="field" for="u-quantities">Quantities (CSV)</label>
+            <textarea id="u-quantities" data-u="quantities" placeholder="item_id,area,description,count_what,unit,design_qty,method,tolerance_pct&#10;Q-1,Block A,PV modules in Block A,solar panel,module,192,objects,0">${esc(S.u.quantities)}</textarea>
+            <p class="tiny muted">method: <span class="mono">objects</span> or <span class="mono">tables</span> (SAM count), <span class="mono">modules</span> (SAM tables then Spark grids) on drone stills; <span class="mono">drawing_symbol</span> on drawings.</p></div>
+          <div><label class="field" for="u-register">Drawing register (CSV)</label>
+            <textarea id="u-register" data-u="register" placeholder="sheet_number,title,current_revision,drawing_id&#10;E-101,FIRST FLOOR POWER PLAN,3,DWG-01">${esc(S.u.register)}</textarea>
+            <p class="tiny muted"><span class="mono">drawing_id</span> is the ID shown next to each uploaded drawing in step 1.</p></div>
+        </div>
+        <label class="field" for="u-notes">Site notes (design intent in words)</label>
+        <textarea id="u-notes" data-u="notes" placeholder="## Block A&#10;8 rows of 24 modules…">${esc(S.u.notes)}</textarea>
+      </details>
+    </div></div>
+    <div class="ustep"><div class="n">3</div><div>
+      <h2>Run the check</h2>
+      <div class="grid2" style="max-width:640px">
+        <div><label class="field" for="u-name">Project name</label><input id="u-name" data-u="name" value="${esc(S.u.name)}"></div>
+        ${h.upload_code_required ? `<div><label class="field" for="u-code">Access code</label><input id="u-code" data-u="code" value="${esc(S.u.code)}" placeholder="given in the hackathon submission" autocomplete="off"></div>` : ""}
+      </div>
+      <p class="small" id="u-msg" role="alert" style="color:var(--ncr);min-height:1.2em;margin:10px 0"></p>
+      <button class="btn primary big" data-act="go-upload" id="go-upload" ${liveReady() ? "" : "disabled"}>▶ Run the agent on my files</button>
+      ${liveReady() ? "" : `<p class="note-off">Live runs are off on this deployment (no API key).</p>`}
+    </div></div>
+  </div>`;
   const drop = $("#drop"), input = $("#file-in");
-  drop.onclick = () => input.click();
-  input.onchange = () => addFiles([...input.files]);
+  input.onchange = () => { addFiles([...input.files]); input.value = ""; };
+  drop.onkeydown = (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), input.click());
   drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
   drop.ondragleave = () => drop.classList.remove("over");
   drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); addFiles([...e.dataTransfer.files]); };
+  $$("[data-u]").forEach((el) => (el.oninput = () => (S.u[el.dataset.u] = el.value)));
   renderFiles();
-  $("#go-upload").onclick = submitUpload;
+  renderSched();
 }
+
+function guessType(file) {
+  if (file.type === "application/pdf" || /\.(pdf|tiff?)$/i.test(file.name)) return "drawing_sheet";
+  if (file.type.startsWith("video/")) return "walkthrough_video";
+  if (/drone|dji|aerial|nadir|ortho/i.test(file.name)) return "drone_still";
+  return "nameplate_photo";
+}
+const idFor = (i) => `${PREFIX[S.files[i].type]}-${String(i + 1).padStart(2, "0")}`;
 
 function addFiles(files) {
   const max = S.health?.max_files || 8;
   for (const f of files) {
-    if (S.files.length >= max) break;
-    S.files.push({ file: f, type: guessType(f), area: "", label: f.name, preview: f.type.startsWith("image/") ? URL.createObjectURL(f) : "" });
+    if (S.files.length >= max) { uploadMsg(`Up to ${max} files per run.`); break; }
+    S.files.push({ file: f, type: guessType(f), area: "", label: f.name, preview: f.type.startsWith("image/") && !/tiff?$/i.test(f.name) ? URL.createObjectURL(f) : "" });
   }
   renderFiles();
 }
@@ -184,23 +341,88 @@ function addFiles(files) {
 function renderFiles() {
   const box = $("#files");
   if (!box) return;
-  const types = Object.entries(TYPE_LABEL).filter(([k]) => k !== "walkthrough_video" || S.health?.video_uploads);
+  const types = Object.entries(TYPE).filter(([k]) => k !== "walkthrough_video" || S.health?.video_uploads);
   box.innerHTML = S.files.map((f, i) => `
     <div class="file-row">
-      ${f.preview ? `<img src="${f.preview}" alt="">` : `<div class="ph">${esc(f.file.name.split(".").pop().toUpperCase())}</div>`}
-      <div class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.file.name)}<br><span class="faint">${(f.file.size / 1e6).toFixed(1)} MB</span></div>
-      <select data-i="${i}" data-k="type">${types.map(([k, v]) => `<option value="${k}" ${f.type === k ? "selected" : ""}>${v}</option>`).join("")}</select>
-      <input class="area" data-i="${i}" data-k="area" placeholder="Area (e.g. Block A)" value="${esc(f.area)}">
-      <button class="icon-btn" data-rm="${i}" title="Remove">×</button>
+      ${f.preview ? `<img src="${f.preview}" alt="" data-zoom data-caption="${esc(f.file.name)}">` : `<div class="ph">${esc(f.file.name.split(".").pop().toUpperCase())}</div>`}
+      <div class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><b class="mono">${idFor(i)}</b> ${esc(f.file.name)}<br>
+        <span class="faint">${(f.file.size / 1e6).toFixed(1)} MB</span></div>
+      <select data-i="${i}" data-k="type" aria-label="What this file is">${types.map(([k, v]) => `<option value="${k}" ${f.type === k ? "selected" : ""}>${v[1]}</option>`).join("")}</select>
+      <input class="area" data-i="${i}" data-k="area" placeholder="Area (e.g. Block A)" value="${esc(f.area)}" aria-label="Area">
+      <button class="icon-btn" data-act="rm-file" data-i="${i}" title="Remove" aria-label="Remove ${esc(f.file.name)}">×</button>
     </div>`).join("");
-  box.querySelectorAll("[data-k]").forEach((el) => (el.oninput = () => (S.files[+el.dataset.i][el.dataset.k] = el.value)));
-  box.querySelectorAll("[data-rm]").forEach((el) => (el.onclick = () => { S.files.splice(+el.dataset.rm, 1); renderFiles(); }));
+  $$("[data-k]", box).forEach((el) => (el.oninput = () => {
+    S.files[+el.dataset.i][el.dataset.k] = el.value;
+    if (el.dataset.k === "type") renderFiles(); // the ID prefix follows the type
+  }));
+}
+
+function renderSched() {
+  const body = $("#sched-body");
+  if (!body) return;
+  body.innerHTML = S.sched.map((r, i) => `<tr>${SCHED_COLS.map((c, j) => `<td><input data-r="${i}" data-c="${c}" value="${esc(r[c] || "")}" placeholder="${esc(SCHED_PH[j])}" aria-label="${SCHED_HEAD[j]}, row ${i + 1}"></td>`).join("")}
+    <td><button class="icon-btn" data-act="rm-row" data-i="${i}" title="Remove row" aria-label="Remove row ${i + 1}">×</button></td></tr>`).join("");
+  $$("input", body).forEach((el) => (el.oninput = () => (S.sched[+el.dataset.r][el.dataset.c] = el.value)));
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [], cell = "", quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') quoted = false; else cell += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ",") { row.push(cell); cell = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
+    else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  const [head, ...body] = rows.filter((r) => r.some((c) => c.trim()));
+  return head ? body.map((r) => Object.fromEntries(head.map((h, i) => [h.trim(), (r[i] || "").trim()]))) : [];
+}
+const csvCell = (v) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+const toCsv = (rows, cols) => [cols.join(","), ...rows.map((r) => cols.map((c) => csvCell(String(r[c] ?? "").trim())).join(","))].join("\n");
+
+function loadScheduleCsv() {
+  const rows = parseCsv($("#sched-csv").value);
+  if (!rows.length || !("tag" in rows[0])) { $("#csv-msg").textContent = "Needs a header row with at least a tag column."; return; }
+  S.sched = rows;
+  renderSched();
+  $("#csv-msg").textContent = `Loaded ${rows.length} rows.`;
+}
+
+async function useExample() {
+  const max = S.health?.max_files || 8;
+  if (S.files.length + EXAMPLE.length > max) return uploadMsg(`Remove a file first: up to ${max} files per run.`);
+  try {
+    for (const [id] of EXAMPLE) {
+      const res = await fetch(`/examples/${id}.jpg`);
+      if (!res.ok) throw new Error();
+      const file = new File([await res.blob()], `example-nameplate-${id.slice(-1)}.jpg`, { type: "image/jpeg" });
+      S.files.push({ file, type: "nameplate_photo", area: "Equipment yard", label: "Nameplate photo", preview: URL.createObjectURL(file) });
+    }
+  } catch {
+    return uploadMsg("The example photos aren't available on this deployment.");
+  }
+  const tags = EXAMPLE.map(([, tag]) => tag).reverse();
+  const rows = tags.map((tag) => (S.pkg?.schedule || []).find((r) => r.tag === tag)).filter(Boolean).map((r) => ({ ...r }));
+  S.sched = [...S.sched.filter((r) => SCHED_COLS.some((c) => r[c]?.trim()) && !tags.includes(r.tag)), ...rows];
+  if (S.u.name === "My site check") S.u.name = "Example: three motor nameplates";
+  renderUpload();
+  uploadMsg("");
+}
+
+function uploadMsg(text) {
+  const el = $("#u-msg");
+  if (el) el.textContent = text;
 }
 
 async function shrink(file, maxSide = 2000) {
   if (!file.type.startsWith("image/") || /tiff?$/i.test(file.name)) return file;
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  if (scale === 1 && file.type === "image/jpeg" && file.size < 1.5e6) return file;
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(bitmap.width * scale);
   canvas.height = Math.round(bitmap.height * scale);
@@ -210,45 +432,88 @@ async function shrink(file, maxSide = 2000) {
 }
 
 async function submitUpload() {
-  if (!S.files.length) return alert("Add at least one photo or drawing first.");
+  const h = S.health || {};
+  const sched = S.sched.filter((r) => SCHED_COLS.some((c) => r[c]?.trim()));
+  if (!S.files.length) return uploadMsg("Add at least one photo or drawing in step 1.");
+  if (sched.some((r) => !r.tag?.trim())) return uploadMsg("Every schedule row needs a tag.");
+  if (!sched.length && !S.u.quantities.trim() && !S.u.register.trim()) return uploadMsg("Add at least one design row in step 2, so there is something to check the photos against.");
+  if (h.upload_code_required && !S.u.code.trim()) return uploadMsg("Enter the access code.");
   const btn = $("#go-upload");
-  btn.disabled = true; btn.textContent = "Preparing files…";
+  btn.disabled = true;
+  btn.textContent = "Preparing files…";
   const form = new FormData();
-  form.append("name", $("#u-name").value);
-  form.append("schedule_csv", $("#u-schedule").value);
-  form.append("quantities_csv", $("#u-quantities").value);
-  form.append("register_csv", $("#u-register").value);
-  form.append("site_notes", $("#u-notes").value);
-  form.append("code", $("#u-code")?.value || "");
+  form.append("name", S.u.name);
+  form.append("schedule_csv", sched.length ? toCsv(sched, SCHED_COLS) : "");
+  form.append("quantities_csv", S.u.quantities);
+  form.append("register_csv", S.u.register);
+  form.append("site_notes", S.u.notes);
+  form.append("code", S.u.code.trim());
   form.append("meta", JSON.stringify(S.files.map((f) => ({ type: f.type, area: f.area, label: f.label }))));
-  for (const f of S.files) form.append("files", await shrink(f.file));
+  let total = 0;
+  S.uploadThumbs = {};
+  for (const [i, f] of S.files.entries()) {
+    const small = await shrink(f.file);
+    total += small.size;
+    form.append("files", small);
+    if (f.preview) S.uploadThumbs[idFor(i)] = f.preview;
+  }
+  if (total > 4.3e6) {
+    btn.disabled = false;
+    btn.textContent = "▶ Run the agent on my files";
+    return uploadMsg(`The files come to ${(total / 1e6).toFixed(1)} MB after shrinking; this host accepts about 4.5 MB per run. Remove a file or use a smaller PDF.`);
+  }
   startRun({ mode: "upload", form });
 }
 
-/* ---------------- run ---------------- */
+/* ---------------- run: state ---------------- */
+const GROUPS = [
+  ["quantities", "Quantities", "Counted on drone stills and drawings, then compared with the design quantity and tolerance."],
+  ["equipment", "Equipment nameplates", "Each plate is read, matched to a schedule row by what it shows, and compared field by field."],
+  ["drawings", "Drawing register", "Each sheet's title block is read and compared with the register."],
+  ["walk", "Narrated walkthrough", "Each spoken claim is checked against what the video shows."],
+];
+const STEPS = [
+  ["Read the package", "Muse Wonder"], ["Run the checks", "SAM 3.1 · Spark 1.3 · Spark Open"],
+  ["Record findings", "only on failed checks"], ["Draft documents", "Spark 1.3, grounding-checked"], ["Report ready", "with evidence"],
+];
+const STATUS = ["Muse Wonder is reading the package…", "Running the checks…", "Recording findings…", "Drafting documents…", "Finished"];
+const TOOL_CARD = {
+  verify_quantity: (a) => [`q:${a.item_id}`, "quantities", a.item_id],
+  read_nameplate: (a) => [`np:${a.capture_id}`, "equipment", a.capture_id],
+  check_equipment: (a) => [`np:${a.capture_id}`, "equipment", a.capture_id],
+  check_drawing_register: (a) => [`dwg:${a.drawing_id}`, "drawings", a.drawing_id],
+  check_walkthrough: (a) => [`wlk:${a.capture_id}`, "walk", a.capture_id],
+};
+const RUNNING = { verify_quantity: "Counting", read_nameplate: "Reading the plate", check_equipment: "Comparing with the schedule",
+  check_drawing_register: "Reading the title block", check_walkthrough: "Listening and watching" };
+const NOUN = { verify_quantity: ["count", "counts"], read_nameplate: ["plate read", "plate reads"], check_equipment: ["schedule comparison", "schedule comparisons"],
+  check_drawing_register: ["register check", "register checks"], check_walkthrough: ["walkthrough review", "walkthrough reviews"],
+  record_finding: ["finding", "findings"], finish: ["finish", "finish"] };
+
 function newRun(mode) {
-  return { mode, events: [], tools: {}, results: {}, evidence: {}, findings: [], drafts: [], turn: 0, phase: "agent",
-           agentCost: 0, started: Date.now(), t: 0, report: null, error: null, name: S.pkg?.name || "" };
+  return { mode, cards: {}, order: [], resultKey: {}, results: {}, evidence: {}, findings: [], draftOf: {}, turns: {}, feed: [], feedIndex: {},
+    step: 0, turn: 0, agentCost: 0, t: 0, began: performance.now(), report: null, error: null, name: "", info: null, skip: false, seq: 0 };
 }
 
 function startRun({ mode, form }) {
   S.run = newRun(mode);
   S.report = null;
+  S.filter = "all";
   location.hash = "#/run";
   renderRun();
   if (mode === "replay") return replay("/replays/demo-solar.ndjson");
   const req = mode === "upload"
     ? fetch("/api/run-upload", { method: "POST", body: form })
     : fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ package: "demo-solar" }) });
-  readStream(req);
+  readStream(req, S.run);
 }
 
-async function readStream(request) {
+async function readStream(request, run) {
   try {
     const res = await request;
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      return apply({ type: "error", message: body.detail || `Server said ${res.status}` });
+      return apply({ type: "error", message: body.detail || `The server answered ${res.status}.` }, run);
     }
     const reader = res.body.getReader(), decoder = new TextDecoder();
     let buf = "";
@@ -260,218 +525,466 @@ async function readStream(request) {
       while ((nl = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, nl).trim();
         buf = buf.slice(nl + 1);
-        if (line) apply(JSON.parse(line));
+        if (line) apply(JSON.parse(line), run);
       }
     }
-    if (S.run.phase !== "done" && !S.run.error) apply({ type: "error", message: "The connection closed before the run finished." });
+    if (!run.report && !run.error) apply({ type: "error", message: "The connection closed before the run finished." }, run);
   } catch (err) {
-    apply({ type: "error", message: String(err) });
+    apply({ type: "error", message: String(err.message || err) }, run);
   }
 }
 
 async function replay(url) {
   const run = S.run;
-  const text = await fetch(url).then((r) => (r.ok ? r.text() : Promise.reject(new Error("No recorded run on this deployment."))))
-    .catch((e) => (apply({ type: "error", message: e.message }), ""));
+  let text = "";
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("There is no recorded run on this deployment.");
+    text = await res.text();
+  } catch (err) {
+    return apply({ type: "error", message: err.message }, run);
+  }
   const events = text.split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.type !== "ping");
   let last = 0;
   for (const ev of events) {
     if (S.run !== run) return; // a new run replaced this one
-    const gap = Math.min(Math.max(ev.t - last, 0), 2.2); // keep the rhythm, skip long waits
+    const gap = Math.min(Math.max(ev.t - last, 0), 2.2); // keep the rhythm, skip long waits, stagger simultaneous events
     last = ev.t;
-    if (gap > 0.02) await new Promise((r) => setTimeout(r, gap * 1000));
-    apply({ ...ev, replay: true });
+    if (!run.skip) await sleep(Math.max(gap, 0.06) * 1000);
+    apply(ev, run);
   }
 }
 
-const toolTitle = (tool, a) => ({
-  verify_quantity: `Count ${a.item_id} on ${a.capture_id}`,
-  read_nameplate: `Read nameplate ${a.capture_id}`,
-  check_equipment: `Check ${a.capture_id} against schedule row ${a.schedule_tag}`,
-  check_drawing_register: `Check ${a.drawing_id} against the drawing register`,
-  check_walkthrough: `Review walkthrough ${a.capture_id}: listen, watch, then re-check each claim on stills`,
-  record_finding: `Record finding: ${a.title}`,
-  finish: "Finish and summarise",
-}[tool] || tool);
-
-function apply(ev) {
+function ensureCard(key, group, id) {
   const run = S.run;
-  if (!run) return;
-  run.events.push(ev);
-  run.t = ev.t ?? run.t;
-  const tl = $("#timeline");
+  if (!run.cards[key]) {
+    run.cards[key] = { key, group, id, status: "waiting", res: {}, checks: [], findings: [], last: null, capture: null, running: null, note: "" };
+    run.order.push(key);
+  }
+  return run.cards[key];
+}
+
+function seedCards(info) {
+  for (const q of info?.quantities || []) ensureCard(`q:${q.item_id}`, "quantities", q.item_id);
+  for (const c of info?.captures || []) {
+    if (c.type === "nameplate_photo") ensureCard(`np:${c.id}`, "equipment", c.id);
+    if (c.type === "drawing_sheet") ensureCard(`dwg:${c.id}`, "drawings", c.id);
+    if (c.type === "walkthrough_video") ensureCard(`wlk:${c.id}`, "walk", c.id);
+  }
+}
+
+function apply(ev, run = S.run) {
+  if (!run || run !== S.run || ev.type === "ping") return;
+  if (typeof ev.t === "number") run.t = ev.t;
+  const touched = new Set();
   switch (ev.type) {
     case "start":
       run.name = ev.name || run.name;
+      run.info = ev.package_info || (ev.package === "demo-solar" ? S.pkg : null);
+      seedCards(run.info);
+      run.order.forEach((k) => touched.add(k));
+      break;
+    case "note":
+      feed(`note-${run.seq++}`, `<div class="msg">${esc(ev.text)}</div>`);
       break;
     case "turn":
       run.turn = ev.turn;
+      run.step = Math.max(run.step, 1);
       run.agentCost = ev.agent_cost_usd ?? run.agentCost;
-      tl?.insertAdjacentHTML("beforeend", `<div class="turn">Turn ${ev.turn} · Muse Wonder ${ev.calls ? `called ${ev.calls} tool${ev.calls > 1 ? "s" : ""}${ev.calls > 1 ? " in parallel" : ""}` : "replied"} after ${ev.thinking_s}s</div>`);
+      run.turns[ev.turn] = { calls: {}, expected: ev.calls, thinking: ev.thinking_s };
+      feed(`turn-${ev.turn}`, turnHtml(ev.turn));
       break;
-    case "note":
-      tl?.insertAdjacentHTML("beforeend", `<div class="note"><div class="av">W</div><div class="bubble"><div class="who">Muse Wonder</div>${esc(ev.text)}</div></div>`);
+    case "tool_start": {
+      const turn = run.turns[ev.turn];
+      if (turn) { turn.calls[ev.tool] = (turn.calls[ev.tool] || 0) + 1; feed(`turn-${ev.turn}`, turnHtml(ev.turn)); }
+      if (ev.tool === "record_finding") run.step = Math.max(run.step, 2);
+      const spec = TOOL_CARD[ev.tool];
+      if (!spec) break;
+      const [key, group, id] = spec(ev.args || {});
+      const c = ensureCard(key, group, id);
+      c.status = "running";
+      c.running = ev.tool;
+      if (ev.tool === "verify_quantity") c.capture = ev.args.capture_id;
+      touched.add(key);
       break;
-    case "tool_start":
-      run.tools[ev.call_id] = { start: ev };
-      if (ev.tool !== "record_finding" && ev.tool !== "finish") {
-        tl?.insertAdjacentHTML("beforeend", `<div class="tool" id="c-${esc(ev.call_id)}"><div><div class="title"><span class="spin"></span>${esc(toolTitle(ev.tool, ev.args))}</div><div class="sub">running…</div></div><div class="thumbs"></div></div>`);
-      }
-      break;
+    }
     case "tool_end": {
-      run.tools[ev.call_id] = { ...(run.tools[ev.call_id] || {}), end: ev };
       Object.assign(run.evidence, ev.evidence || {});
-      if (ev.result) run.results[ev.result.id] = ev.result;
+      const refused = String(ev.brief || "").startsWith("error");
       if (ev.finding) {
-        run.findings.push(ev.finding);
-        tl?.insertAdjacentHTML("beforeend", `<div class="tool finding ${ev.finding.kind}"><div><div class="title"><span class="chip ${ev.finding.kind}">${KIND[ev.finding.kind].label}</span>${esc(ev.finding.title)}</div><div class="sub">${esc(ev.finding.explanation)}</div></div><div class="thumbs">${thumbs(ev.finding.evidence, 1)}</div></div>`);
-      } else if (ev.tool === "finish") {
-        // the summary arrives with the report
-      } else {
-        const card = document.getElementById(`c-${ev.call_id}`);
-        if (card) {
-          const r = ev.result;
-          const v = r?.data?.verdict;
-          const models = (r?.data?.models || []).map((m) => `<span class="chip model">${esc(m)}</span>`).join("");
-          $(".title", card).innerHTML = `${v ? `<span class="chip ${verdictClass(v)}">${esc(v.replace(/_/g, " "))}</span>` : ""}${esc(toolTitle(ev.tool, ev.args))}`;
-          const brief = (ev.brief || "").replace(new RegExp(`^${v || "\\0"},?\\s*`), ""); // the chip already shows the verdict
-          $(".sub", card).innerHTML = ev.error || ev.brief?.startsWith("error")
-            ? `<span style="color:var(--ncr)">${esc(ev.brief)}</span>`
-            : `${esc(brief)} <span class="faint">${brief ? "· " : ""}${ev.seconds}s${ev.cached ? " · cached measurement" : ""}</span> ${models}`;
-          $(".thumbs", card).innerHTML = thumbs(r?.evidence || [], 2);
-        }
+        const f = ev.finding;
+        run.findings.push(f);
+        const key = run.resultKey[f.result_id];
+        if (key) { run.cards[key].findings.push(f); touched.add(key); }
+        feed(`f-${f.id}`, `<div class="ev"><span class="chip ${f.kind}">${KIND[f.kind].doc}</span><span>Recorded: ${esc(f.title)}</span></div>`);
+        break;
       }
+      if (ev.tool === "record_finding" || ev.tool === "finish") {
+        if (refused) {
+          const why = ev.brief.replace(/^error:\s*/, "");
+          feed(`g-${run.seq++}`, `<div class="ev"><span class="chip review">Guard</span><span>${ev.tool === "finish"
+            ? "Muse Wonder tried to finish; GroundTruth refused: " : "A finding was refused: "}${esc(why)}</span></div>`);
+        }
+        break;
+      }
+      const spec = TOOL_CARD[ev.tool];
+      if (!spec) break;
+      const [key, group, id] = spec(ev.args || {});
+      const c = ensureCard(key, group, id);
+      c.running = null;
+      const r = ev.result;
+      if (!r || refused || ev.error) {
+        c.note = `${RUNNING[ev.tool] || ev.tool} failed: ${String(ev.error || ev.brief || "no result").replace(/^error:\s*/, "")}`;
+        c.status = c.last ? "done" : "error";
+      } else {
+        run.results[r.id] = r;
+        run.resultKey[r.id] = key;
+        c.res[r.tool] = r;
+        if (r.tool === "check_equipment") c.checks.push(r);
+        c.last = r.tool === "read_nameplate" && c.res.check_equipment ? c.res.check_equipment : r;
+        c.status = "done";
+        c.note = "";
+      }
+      touched.add(key);
       break;
     }
     case "drafting":
-      run.phase = "drafting";
-      tl?.insertAdjacentHTML("beforeend", `<div class="turn">Drafting ${ev.count} documents with ${esc(ev.model)} (each must name its subject and numbers, or it is redone)</div>`);
+      run.step = Math.max(run.step, 3);
+      feed("drafting", `<div class="turn">Drafting</div><div class="ev">${esc(modelName(ev.model))} is writing ${ev.count} documents. Each must name its subject and its measured numbers, or it is written again.</div>`);
       break;
-    case "draft":
-      run.drafts.push(ev.draft);
-      tl?.insertAdjacentHTML("beforeend", `<div class="tool"><div><div class="title"><span class="chip">${esc(ev.draft.number)}</span>${esc(ev.draft.title)}</div><div class="sub">${esc(ev.draft.document)} drafted by ${esc(ev.draft.drafted_by)}${ev.draft.attempts > 1 ? " (second attempt)" : ""}</div></div><div></div></div>`);
+    case "draft": {
+      const d = ev.draft;
+      run.draftOf[d.finding_id] = d;
+      const f = run.findings.find((x) => x.id === d.finding_id);
+      const key = f && run.resultKey[f.result_id];
+      if (key) touched.add(key);
+      feed(`d-${d.finding_id}`, `<div class="ev"><span class="chip ${f?.kind || ""}">${esc(d.number)}</span><span>${esc(d.title || f?.title || "")}${
+        d.drafted_by === "template" ? " (template)" : d.attempts > 1 ? " (second attempt)" : ""}</span></div>`);
       break;
+    }
     case "done":
-      run.phase = "done";
+      run.step = 5;
       Object.assign(run.evidence, ev.evidence || {});
       run.report = ev.report;
       S.report = { ...ev.report, evidenceSrc: run.evidence, mode: run.mode };
-      tl?.insertAdjacentHTML("beforeend", doneCard(ev.report));
-      $("#see")?.addEventListener("click", () => (location.hash = "#/findings"));
+      for (const f of ev.report.findings || []) if (!run.findings.some((x) => x.id === f.id)) run.findings.push(f);
+      run.order.forEach((k) => touched.add(k)); // unchecked cards now read "not checked"
+      feed("done", `<div class="turn">Report ready</div><div class="ev">${ev.report.findings.length} findings, ${(ev.report.drafts || []).length} drafts, in ${ev.report.seconds} s.</div>`);
       break;
     case "error":
       run.error = ev.message;
-      run.phase = "error";
-      tl?.insertAdjacentHTML("beforeend", `<div class="error-card"><b>The run stopped.</b> ${esc(ev.message)}
-        ${run.mode !== "replay" ? `<div style="margin-top:8px"><button class="btn small" onclick="startRun({mode:'replay'})">Play the recorded run instead</button></div>` : ""}</div>`);
+      feed(`err-${run.seq++}`, `<div class="ev" style="color:var(--ncr)">Stopped: ${esc(ev.message)}</div>`);
       break;
   }
-  if (["tool_end", "turn", "done", "error", "draft", "drafting", "start"].includes(ev.type)) renderSide();
-  if (ev.type !== "ping" && tl && isNearBottom()) window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+  touched.forEach(paintCard);
+  paintChrome();
 }
 
-const isNearBottom = () => window.innerHeight + window.scrollY > document.body.scrollHeight - 400;
-
-function thumbs(ids, max) {
-  return (ids || []).slice(0, max).map((id) => {
-    const ev = S.run?.evidence[id] || S.report?.evidenceSrc?.[id];
-    return ev ? `<img src="${ev.src}" alt="${esc(id)}" data-zoom data-caption="${esc(id)} · ${esc(ev.caption)}">` : "";
-  }).join("");
+function turnHtml(n) {
+  const t = S.run.turns[n];
+  const parts = Object.entries(t.calls).map(([tool, c]) => `${c} ${(NOUN[tool] || [tool, tool])[c > 1 ? 1 : 0]}`);
+  const total = Object.values(t.calls).reduce((a, b) => a + b, 0);
+  const what = !t.expected ? "Replied without calling a tool." : `${total > 1 ? `${total} tool calls at once` : "1 tool call"}${parts.length ? ": " + parts.join(" · ") : ""}`;
+  return `<div class="turn">Turn ${n} · thought for ${t.thinking}s</div><div class="ev">${esc(what)}</div>`;
 }
 
-function doneCard(report) {
-  const ev = report.evaluation;
-  return `<div class="done-card"><h3>Done: ${report.findings.length} findings from ${Object.values(report.results).filter((r) => r.tool !== "read_nameplate").length} checks</h3>
-    <p style="margin:0 0 10px">${esc(report.summary)}</p>
-    ${ev ? `<p><span class="score">Answer key: ${ev.found}/${ev.expected} planted problems found · ${ev.right_kind} with the right document type · ${ev.extra_findings.length} extra</span></p>` : ""}
-    <button class="btn primary" id="see">See the findings, evidence and drafts →</button></div>`;
-}
-
-function counts() {
+function feed(id, html) {
   const run = S.run;
-  const checks = Object.values(run.results).filter((r) => r.tool !== "read_nameplate");
-  const passed = checks.filter((r) => r.data.verdict === "pass").length;
-  const by = (k) => run.findings.filter((f) => f.kind === k).length;
-  return { checks: checks.length, passed, ncr: by("nonconformance"), rfi: by("design_query"), obs: by("reporting_discrepancy") };
+  let entry = run.feedIndex[id];
+  if (entry) entry.html = html;
+  else { entry = { id, html }; run.feed.push(entry); run.feedIndex[id] = entry; }
+  paintFeed(entry);
 }
 
-function renderSide() {
-  const side = $("#side");
-  if (!side || !S.run) return;
-  const run = S.run, c = counts();
-  const status = { agent: run.turn ? `Muse Wonder · turn ${run.turn}` : "Muse Wonder is reading the package…", drafting: "Drafting documents…", done: "Finished", error: "Stopped" }[run.phase];
-  const cost = run.report ? run.report.cost.total_usd : run.agentCost;
-  $(".pulse")?.classList.toggle("off", run.phase === "done" || run.phase === "error");
-  $("#status").textContent = status;
-  side.innerHTML = `
-    <div class="stats">
-      <div class="stat"><b>${c.checks}</b><span>checks run</span></div>
-      <div class="stat ok"><b>${c.passed}</b><span>passed</span></div>
-      <div class="stat ncr"><b>${c.ncr}</b><span>non-conformances</span></div>
-      <div class="stat rfi"><b>${c.rfi}</b><span>design queries</span></div>
-      <div class="stat obs"><b>${c.obs}</b><span>reporting discrepancies</span></div>
-      <div class="stat"><b>${run.mode === "replay" ? "$0" : "$" + (cost || 0).toFixed(2)}</b><span>${run.mode === "replay" ? "recorded run" : run.report ? "model cost" : "agent cost so far"}</span></div>
-    </div>
-    <div><b class="small">Findings so far</b><div class="flist" style="margin-top:6px">${run.findings.map((f) => `<div class="f ${f.kind}">${esc(f.title)}</div>`).join("") || `<span class="small faint">None yet</span>`}</div></div>
-    ${run.phase === "done" ? `<button class="btn primary" onclick="location.hash='#/findings'">See the findings →</button>` : ""}`;
+/* ---------------- run: plain-language results ---------------- */
+function plain(r) {
+  const d = r.data;
+  switch (r.tool) {
+    case "verify_quantity": {
+      if (d.verdict === "pass") return d.difference
+        ? `Counted ${d.observed} ${plural(d.unit, d.observed)} on ${d.capture_id} against ${d.design_qty} designed: ${signed(d.difference)}, within the ±${d.tolerance} tolerance.`
+        : `Counted ${d.observed} of ${d.design_qty} ${plural(d.unit, d.design_qty)} on ${d.capture_id}: matches the design.`;
+      return `Counted ${d.observed} ${plural(d.unit, d.observed)} on ${d.capture_id}; the design says ${d.design_qty}. That's ${Math.abs(d.difference)} ${d.verdict === "short" ? "short" : "over"}${d.tolerance ? ` (tolerance ±${d.tolerance})` : ""}.`;
+    }
+    case "read_nameplate": {
+      const name = [d.manufacturer, d.model_number].filter(Boolean).join(" ") || "the plate";
+      const unread = d.unreadable_fields?.length ? ` ${d.unreadable_fields.length} fields unreadable.` : "";
+      return `Read ${name}.${unread} Next: compare it with the schedule.`;
+    }
+    case "check_equipment": {
+      if (d.verdict === "pass") return `Matches schedule row ${d.schedule_tag}.`;
+      if (d.verdict === "wrong_row") return `Not schedule row ${d.schedule_tag}: the manufacturer differs, so the agent has to pick another row.`;
+      const bad = (d.fields || []).filter((f) => f.status === "mismatch");
+      if (bad.length) return `Differs from row ${d.schedule_tag}: ${bad.map((f) => `${fieldName(f.field)} is ${f.nameplate_value || "?"} on the plate, ${f.schedule_value || "?"} in the schedule`).join("; ")}.`;
+      return `Row ${d.schedule_tag}: ${d.summary}`;
+    }
+    case "check_drawing_register": {
+      const tb = d.title_block || {};
+      if (d.verdict === "not_in_register") return `Sheet ${tb.sheet_number || "?"} is not in the drawing register.`;
+      if (d.verdict === "pass") {
+        const rev = (d.comparison || []).find((c) => c.field === "revision")?.title_block;
+        return `Title block matches the register: sheet ${tb.sheet_number}, ${rev && rev !== "(none)" ? `revision ${rev}` : "no revision"}.`;
+      }
+      const bad = (d.comparison || []).filter((c) => !c.match);
+      return `Differs from the register: ${bad.map((c) => `${fieldName(c.field)} ${c.title_block} on the sheet, ${c.register} in the register`).join("; ")}.`;
+    }
+    case "check_walkthrough": {
+      const n = (v) => d.claims.filter((c) => c.verdict === v).length;
+      const other = d.claims.length - n("confirmed") - n("contradicted");
+      return `${d.claims.length} spoken claims: ${n("confirmed")} confirmed, ${n("contradicted")} contradicted${other ? `, ${other} for a person to review` : ""}.`;
+    }
+  }
+  return r.brief || "";
+}
+
+function firstEvidence(r) {
+  const id = r?.evidence?.[0];
+  const e = id && S.run.evidence[id];
+  return e ? { src: e.src, caption: `${id} · ${e.caption}` } : null;
+}
+
+function describe(c) {
+  const info = S.run.info || {};
+  const cap = (id) => (info.captures || []).find((x) => x.id === id);
+  const thumbOf = (id) => cap(id)?.thumb || S.uploadThumbs[id] || "";
+  const o = { verdict: c.last?.data?.verdict, models: c.last?.data?.models || [], text: c.last ? plain(c.last) : "", thumb: "", caption: "" };
+  if (c.group === "quantities") {
+    const q = (info.quantities || []).find((x) => x.item_id === c.id) || {};
+    const d = c.res.verify_quantity?.data || {};
+    const qty = q.design_qty ?? d.design_qty, unit = q.unit || d.unit;
+    o.title = q.description || d.description || c.id;
+    o.sub = `${c.id} · design ${qty ?? "?"} ${plural(unit, qty)}${+q.tolerance_pct ? ` ±${q.tolerance_pct}%` : ""}${c.capture ? ` · on ${c.capture}` : ""}`;
+    o.icon = "🔢";
+    const ev = firstEvidence(c.res.verify_quantity);
+    o.thumb = ev?.src || (c.capture ? thumbOf(c.capture) : "");
+    o.caption = ev?.caption || c.capture || "";
+  } else if (c.group === "equipment") {
+    const read = c.res.read_nameplate?.data;
+    const scheduled = c.last?.tool === "check_equipment" && c.last.data.verdict !== "wrong_row"
+      && (c.last.data.fields || []).find((f) => f.field === "equipment_type")?.schedule_value;
+    const kind = scheduled || read?.equipment_type;
+    o.title = `${c.id} · ${kind ? sentence(kind) : "nameplate"}`;
+    o.sub = read ? [read.manufacturer, read.model_number].filter(Boolean).join(" ") || "plate read" : cap(c.id)?.area || "";
+    if (c.res.check_equipment) o.sub += ` · vs. row ${c.res.check_equipment.data.schedule_tag}`;
+    const tried = c.checks.filter((r) => r.data.verdict === "wrong_row" && r !== c.last).map((r) => r.data.schedule_tag);
+    if (tried.length) o.text = `Tried row ${tried.join(", ")} first: wrong manufacturer. ${o.text}`;
+    o.icon = "🏷️";
+    o.thumb = thumbOf(c.id) || firstEvidence(c.res.read_nameplate)?.src || "";
+    o.caption = `${c.id} · ${cap(c.id)?.label || "nameplate"}`;
+  } else if (c.group === "drawings") {
+    const tb = c.res.check_drawing_register?.data?.title_block;
+    o.title = `${c.id}${tb?.sheet_number ? ` · sheet ${tb.sheet_number}` : ""}`;
+    o.sub = tb?.sheet_title || cap(c.id)?.label || "";
+    o.icon = "📐";
+    const ev = firstEvidence(c.res.check_drawing_register);
+    o.thumb = ev?.src || thumbOf(c.id);
+    o.caption = ev?.caption || c.id;
+  } else {
+    o.title = `${c.id} · ${cap(c.id)?.label || "walkthrough"}`;
+    o.sub = cap(c.id)?.area || "";
+    o.icon = "🎥";
+    o.thumb = thumbOf(c.id);
+    o.caption = c.id;
+    o.claims = c.res.check_walkthrough?.data?.claims;
+  }
+  return o;
+}
+
+function cardHtml(c, fresh) {
+  const run = S.run, o = describe(c), finished = !!(run.report || run.error);
+  let chip, cls;
+  if (c.status === "running") { chip = `<span class="chip running"><span class="spin"></span>${esc(RUNNING[c.running] || "Checking")}</span>`; cls = "running"; }
+  else if (c.status === "error") { chip = `<span class="chip fail">Error</span>`; cls = "fail"; }
+  else if (c.status === "waiting") { chip = `<span class="chip">${finished ? "Not checked" : "Waiting"}</span>`; cls = "waiting"; }
+  else { chip = `<span class="chip ${tone(o.verdict)}">${esc(VERDICT[o.verdict] || o.verdict)}</span>`; cls = tone(o.verdict); }
+  const findings = c.findings.filter((f) => f.claim_index === -1 || f.claim_index === undefined || !o.claims);
+  const fchips = findings.map((f) => `<span class="chip ${f.kind}">${esc(run.draftOf[f.id]?.number || KIND[f.kind].doc)} ${run.draftOf[f.id] ? "drafted" : "recorded"}</span>`).join("");
+  const claimFinding = (i) => c.findings.find((f) => f.claim_index === i);
+  const claims = o.claims ? `<div class="claims">${o.claims.map((cl) => {
+    const f = claimFinding(cl.claim_index);
+    const e = cl.evidence && run.evidence[cl.evidence];
+    return `<div class="claim"><span class="chip ${tone(cl.verdict)}">${esc(VERDICT[cl.verdict] || cl.verdict)}</span>
+      <div><span class="faint at">${cl.t_s.toFixed(1)} s</span> “${esc(cl.claim)}”${f ? ` <span class="chip ${f.kind}">${esc(run.draftOf[f.id]?.number || KIND[f.kind].doc)}</span>` : ""}</div>
+      ${e ? `<img src="${e.src}" alt="" data-zoom data-caption="${esc(`${cl.evidence} · ${e.caption} · “${cl.claim}”`)}">` : "<span></span>"}</div>`;
+  }).join("")}</div>` : "";
+  const thumb = o.thumb ? `<img class="th" src="${o.thumb}" alt="" data-zoom data-caption="${esc(o.caption)}">` : `<div class="th" aria-hidden="true">${o.icon}</div>`;
+  return `<div class="card ${cls}${fresh ? " new" : ""}" id="${cardId(c.key)}">${thumb}<div>
+    <div class="t">${esc(o.title)}</div>${o.sub ? `<div class="s">${esc(o.sub)}</div>` : ""}
+    ${o.text && c.status !== "waiting" ? `<div class="f">${esc(o.text)}</div>` : ""}${c.note ? `<div class="note">${esc(c.note)}</div>` : ""}
+    <div class="row">${chip}${fchips}${c.status === "done" ? modelChips(o.models) : ""}</div></div>${claims}</div>`;
+}
+const cardId = (key) => `card-${key.replace(/[^\w-]/g, "_")}`;
+
+/* ---------------- run: painting ---------------- */
+function setHtml(el, html) {
+  if (el && el._html !== html) { el.innerHTML = html; el._html = html; }
+}
+
+function paintCard(key) {
+  const run = S.run, c = run?.cards[key], grp = c && $(`#grp-${c.group}`);
+  if (!grp) return;
+  grp.hidden = false;
+  $("#empty")?.remove();
+  const el = document.getElementById(cardId(key));
+  if (el) el.outerHTML = cardHtml(c, false);
+  else $(".cards", grp).insertAdjacentHTML("beforeend", cardHtml(c, true));
+  const cards = Object.values(run.cards).filter((x) => x.group === c.group);
+  $(".count", grp).textContent = `${cards.filter((x) => x.status === "done").length} of ${cards.length} checked`;
+}
+
+function paintFeed(entry) {
+  const box = $("#feed");
+  if (!box) return;
+  const near = box.scrollHeight - box.scrollTop - box.clientHeight < 90;
+  const html = `<div id="fe-${entry.id}">${entry.html}</div>`;
+  const el = document.getElementById(`fe-${entry.id}`);
+  if (el) el.outerHTML = html;
+  else box.insertAdjacentHTML("beforeend", html);
+  if (near) box.scrollTop = box.scrollHeight;
+}
+
+function counts(run) {
+  const checks = Object.values(run.results).filter((r) => r.tool !== "read_nameplate");
+  const by = (k) => run.findings.filter((f) => f.kind === k).length;
+  return { checks: checks.length, passed: checks.filter((r) => r.data.verdict === "pass").length, ncr: by("nonconformance"), rfi: by("design_query"), obs: by("reporting_discrepancy") };
+}
+
+function paintChrome() {
+  const run = S.run;
+  if (!run || !$("#stepper")) return;
+  const finished = !!(run.report || run.error);
+  $("#run-title").textContent = run.name || (run.mode === "upload" ? S.u.name : S.pkg?.name) || "Verification run";
+  $("#pulse").classList.toggle("off", finished);
+  $("#status").textContent = run.error ? "Stopped" : STATUS[Math.min(run.step, 4)];
+  $("#agent-status").textContent = run.error ? "stopped" : run.report ? `finished in ${run.turn} turns` : run.turn ? `turn ${run.turn}` : "reading the package";
+  const cost = run.report ? run.report.cost?.total_usd : run.agentCost;
+  $("#cost").textContent = run.mode === "replay" ? "free replay" : `$${(cost || 0).toFixed(2)}${run.report ? "" : " so far"}`;
+  setHtml($("#skip"), run.mode === "replay" && !finished && !run.skip ? `<button class="btn small" data-act="skip">Skip to the end ⏩</button>` : "");
+  setHtml($("#stepper"), STEPS.map(([title, sub], i) => `<div class="st ${i < run.step ? "done" : i === run.step && !run.error ? "now" : ""}">
+    <b>${i < run.step ? "✓ " : ""}${esc(title)}</b><span>${esc(sub)}</span></div>`).join(""));
+  const c = counts(run);
+  setHtml($("#tally"), `<div><b>${c.checks}</b><span>checks done</span></div><div><b style="color:var(--pass)">${c.passed}</b><span>passed</span></div>
+    <div><b>${run.findings.length}</b><span>findings</span></div>
+    <div class="ncr" title="Non-conformances"><b>${c.ncr}</b><span>NCRs</span></div><div class="rfi" title="Design queries"><b>${c.rfi}</b><span>RFIs</span></div>
+    <div class="obs" title="Reporting discrepancies"><b>${c.obs}</b><span>observations</span></div>`);
+  let banner = "";
+  if (run.report) banner = doneCard(run.report);
+  else if (run.error) banner = `<div class="error-card"><b>The run stopped.</b> ${esc(run.error)}
+    <div class="ctas" style="margin-top:10px">${run.mode !== "replay" ? `<button class="btn small" data-act="replay">Play the recorded run instead</button>` : ""}
+    ${run.mode === "upload" ? `<button class="btn small" data-act="back-upload">← Back to your files</button>` : ""}
+    <button class="btn small" data-act="home">Home</button></div></div>`;
+  setHtml($("#run-banner"), banner);
+  setHtml($("#side-cta"), run.report ? `<button class="btn primary" style="width:100%" data-act="findings">See the findings, evidence and drafts →</button>` : "");
+}
+
+function doneCard(rep) {
+  const ev = rep.evaluation;
+  const checks = Object.values(rep.results).filter((r) => r.tool !== "read_nameplate").length;
+  return `<div class="done-card"><h3>✓ Finished in ${rep.seconds} s: ${rep.findings.length} findings from ${checks} checks</h3>
+    ${ev ? `<p class="small" style="margin:0 0 10px"><b>Answer key:</b> ${ev.found} of ${ev.expected} planted problems found, ${ev.right_kind} with the right
+      document type, ${ev.extra_findings.length} extra findings, ${ev.passes_wrongly_flagged.length} correct items wrongly flagged.</p>` : ""}
+    <button class="btn primary" data-act="findings">See the findings, evidence and drafts →</button></div>`;
 }
 
 function renderRun() {
   const run = S.run;
   if (!run) { location.hash = "#/"; return; }
-  app.innerHTML = `<div class="run">
-    <div class="run-head"><span class="pulse"></span><h1>${esc(run.name || "Verification run")}</h1>
-      <span class="chip">${run.mode === "replay" ? "Recorded run" : "Live"}</span><span class="muted small" id="status"></span>
-      <span class="muted small" id="clock" style="margin-left:auto"></span></div>
-    <div class="timeline" id="timeline"></div>
-    <aside class="side" id="side"></aside></div>`;
-  // Re-entering the view rebuilds the timeline from the events so far.
-  const events = run.events.slice();
-  run.events = []; run.tools = {}; run.results = {}; run.findings = []; run.drafts = [];
-  const phase = run.phase;
-  events.forEach(apply);
-  run.phase = phase;
-  renderSide();
+  app.innerHTML = `
+  <div class="run-top"><span class="pulse" id="pulse"></span><h1 id="run-title"></h1>
+    <span class="chip ${run.mode === "replay" ? "" : "accent"}">${run.mode === "replay" ? "Recorded run" : run.mode === "upload" ? "Live · your files" : "Live"}</span>
+    <div class="meta"><span id="status"></span><span>⏱ <b id="clock">0 s</b></span><span><b id="cost"></b></span><span id="skip"></span></div></div>
+  <div class="stepper" id="stepper"></div>
+  <div class="run">
+    <div class="board"><div id="run-banner"></div>
+      ${GROUPS.map(([id, title, text]) => `<div class="grp" id="grp-${id}" hidden><h3>${title} <span class="count"></span></h3>
+        <p class="small muted" style="margin:-6px 0 10px">${text}</p><div class="cards"></div></div>`).join("")}
+      <div class="empty-board" id="empty"><span class="spin"></span> Waiting for the agent's plan…</div></div>
+    <aside class="side">
+      <div class="tally" id="tally"></div>
+      <div class="agent"><div class="hd"><div class="av">W</div><div><b>Muse Wonder</b> <span class="tiny muted">the agent</span>
+        <div class="tiny muted" id="agent-status"></div></div></div><div class="feed" id="feed" aria-live="polite"></div></div>
+      <div id="side-cta"></div>
+    </aside>
+  </div>`;
+  run.order.forEach(paintCard);
+  run.feed.forEach(paintFeed);
+  paintChrome();
   clearInterval(S.clock);
   S.clock = setInterval(() => {
     const el = $("#clock");
     if (!el || !S.run) return clearInterval(S.clock);
-    el.textContent = `${Math.round(S.run.t)} s`;
-  }, 500);
+    const r = S.run, live = r.mode !== "replay" && !r.report && !r.error;
+    el.textContent = `${Math.round(r.report ? r.report.seconds : live ? Math.max(r.t, (performance.now() - r.began) / 1000) : r.t)} s`;
+  }, 250);
 }
 
 /* ---------------- findings ---------------- */
 function facts(r, claimIndex) {
   const d = r.data;
+  let rows = [];
   if (r.tool === "verify_quantity") {
-    const rows = [["Design", `${d.design_qty} ${d.unit}(s)`], ["Observed", `${d.observed} (${d.method})`], ["Difference", `${d.difference > 0 ? "+" : ""}${d.difference} (tolerance ±${d.tolerance})`]];
+    rows = [["Design", `${d.design_qty} ${plural(d.unit, d.design_qty)}`], ["Counted", `${d.observed} on ${d.capture_id} (${METHOD[d.method] || d.method})`],
+      ["Difference", `${signed(d.difference)} (tolerance ±${d.tolerance})`]];
     const short = d.details?.rows_below_the_fullest_row;
     if (short?.length) rows.push(["Short rows", short.map((s) => `row ${s.row}: ${s.count} (−${s.short_by})`).join(", ")]);
-    return rows;
+  } else if (r.tool === "check_equipment") {
+    rows = [["Schedule row", d.schedule_tag], ...(d.fields || []).filter((f) => !["match", "acceptable"].includes(f.status))
+      .map((f) => [sentence(fieldName(f.field)), `plate ${f.nameplate_value || "—"} · schedule ${f.schedule_value || "—"} (${f.status.replace(/_/g, " ")})`])];
+  } else if (r.tool === "check_drawing_register") {
+    rows = (d.comparison || []).map((c) => [sentence(fieldName(c.field)), `sheet ${c.title_block} · register ${c.register}${c.match ? "" : " (differs)"}`]);
+  } else if (r.tool === "check_walkthrough" && claimIndex >= 0) {
+    const c = d.claims.find((x) => x.claim_index === claimIndex) || d.claims[claimIndex];
+    rows = [["Said at", `${c.t_s.toFixed(1)} s: “${c.claim}”`], ["Checked by", c.method]];
+    if (c.sam_count_in_scope !== undefined) rows.push(["Count", `claimed ${c.claimed_count}, SAM 3.1 counted ${c.sam_count_in_scope} “${c.sam_phrase}”`]);
+    if (c.evidence_text) rows.push(["Seen", c.evidence_text]);
   }
-  if (r.tool === "check_equipment") return d.fields.filter((f) => f.status !== "match").map((f) => [f.field, `schedule ${f.schedule_value || "—"} · plate ${f.nameplate_value || "—"} · ${f.status}`]);
-  if (r.tool === "check_drawing_register") return d.comparison.map((c) => [c.field, `register ${c.register} · title block ${c.title_block}${c.match ? "" : " · differs"}`]);
-  if (r.tool === "check_walkthrough" && claimIndex >= 0) {
-    const c = d.claims[claimIndex];
-    const rows = [["Said at", `${c.t_s.toFixed(1)} s: “${c.claim}”`], ["Verdict", `${c.verdict} (${c.method})`]];
-    if (c.sam_count_in_scope !== undefined) rows.push(["Count", `claimed ${c.claimed_count}, SAM counted ${c.sam_count_in_scope} “${c.sam_phrase}”`]);
-    rows.push(["Seen", c.evidence_text]);
-    return rows;
-  }
-  return [];
+  return rows.length ? `<dl class="facts">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : "";
 }
 
-function draftHtml(d, open) {
-  if (!d) return "";
+function draftHtml(d) {
   const list = (label, xs) => (xs?.length ? `<h5>${label}</h5><ul>${xs.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "");
-  return `<div class="doc ${open ? "" : "collapsed"}">
-    <div class="doc-head"><b>${esc(d.document)} ${esc(d.number)}</b><span class="muted">drafted by ${esc(d.drafted_by)} · for engineer review
-      <button class="btn small" style="margin-left:8px" onclick="this.closest('.doc').classList.toggle('collapsed')">Show / hide</button></span></div>
+  const by = d.drafted_by === "template" ? "a plain template (the model's drafts failed the grounding check)" : `${modelName(d.drafted_by)}${d.attempts > 1 ? " at the second attempt" : ""}`;
+  return `<div class="doc"><button type="button" data-act="toggle-doc"><span><b>📄 ${esc(d.number)} · ${esc(d.document)}</b><br>
+      <span class="muted small">Drafted by ${esc(by)}, for an engineer to review and sign</span></span><span class="arrow" aria-hidden="true">▸</span></button>
     <div class="doc-body">
       <h5>Location</h5>${esc(d.location)}<h5>Requirement</h5>${esc(d.requirement)}<h5>Condition found</h5>${esc(d.condition_found)}
       <h5>Impact</h5>${esc(d.impact)}<h5>Request</h5>${esc(d.request)}
       ${list("Evidence", d.evidence)}${list("Actions", d.actions)}${list("To be confirmed", d.to_be_confirmed)}
+      <div style="margin-top:12px"><button class="btn small" data-act="copy-doc" data-fid="${esc(d.finding_id)}">Copy as text</button></div>
     </div></div>`;
+}
+
+function draftText(d) {
+  const list = (label, xs) => (xs?.length ? `\n${label}:\n${xs.map((x) => `- ${x}`).join("\n")}` : "");
+  return `${d.number}: ${d.document}\n${d.title || ""}\n\nLocation: ${d.location}\nRequirement: ${d.requirement}\nCondition found: ${d.condition_found}\n` +
+    `Impact: ${d.impact}\nRequest: ${d.request}${list("Evidence", d.evidence)}${list("Actions", d.actions)}${list("To be confirmed", d.to_be_confirmed)}\n`;
+}
+
+function copyDraft(el) {
+  const d = (S.report?.drafts || []).find((x) => x.finding_id === el.dataset.fid);
+  if (!d) return;
+  navigator.clipboard?.writeText(draftText(d)).then(() => (el.textContent = "Copied ✓"), () => (el.textContent = "Copy failed"));
+}
+
+function figure(id, rep) {
+  const e = rep.evidenceSrc?.[id];
+  return e ? `<figure><img src="${e.src}" alt="${esc(e.caption)}" data-zoom data-caption="${esc(id)} · ${esc(e.caption)}"><figcaption>${esc(id)} · ${esc(e.caption)}</figcaption></figure>` : "";
+}
+
+function findingCard(f, rep, d) {
+  const r = rep.results[f.result_id];
+  const args = Object.values(r.args).join(", ");
+  return `<article class="fcard ${f.kind}" id="f-${esc(f.id)}">
+    <div class="ev">${f.evidence.map((id) => figure(id, rep)).join("") || `<p class="muted small">No image for this finding.</p>`}</div>
+    <div>
+      <span class="chip ${f.kind}">${esc(d?.number || f.id)} · ${KIND[f.kind].label}</span>
+      <h3>${esc(f.title)}</h3><p style="margin:0">${esc(f.explanation)}</p>
+      ${facts(r, f.claim_index)}
+      <p class="how-known"><b>How we know:</b> result ${esc(r.id)} from <span class="mono">${esc(r.tool)}(${esc(args)})</span>, measured by
+        ${esc([...new Set((r.data.models || []).map(modelName))].join(", ") || "code")}${r.cached ? " (measurement from the cache)" : ""}.
+        The verdict “${esc(VERDICT[f.verdict] || f.verdict)}” was computed in code, not by the model.</p>
+      ${d ? draftHtml(d) : ""}
+    </div></article>`;
 }
 
 function renderFindings() {
@@ -480,59 +993,68 @@ function renderFindings() {
   const drafts = Object.fromEntries((rep.drafts || []).map((d) => [d.finding_id, d]));
   const order = { nonconformance: 0, design_query: 1, reporting_discrepancy: 2 };
   const findings = rep.findings.slice().sort((a, b) => order[a.kind] - order[b.kind]);
-  const shown = findings.filter((f) => S.filter === "all" || f.kind === S.filter);
-  const ev = rep.evaluation;
   const results = Object.values(rep.results);
-  const checks = results.filter((r) => r.tool !== "read_nameplate");
-  const img = (id) => {
-    const e = rep.evidenceSrc?.[id];
-    return e ? `<figure><img src="${e.src}" alt="${esc(id)}" data-zoom data-caption="${esc(id)} · ${esc(e.caption)}"><figcaption>${esc(id)} · ${esc(e.caption)}</figcaption></figure>` : "";
-  };
-  app.innerHTML = `<div class="results">
-    <div class="res-head"><div><p class="muted small" style="margin:0">${esc(rep.finished_at)} · ${rep.mode === "replay" ? "recorded run" : "live run"} · ${rep.seconds}s</p>
-      <h1>${esc(rep.project.name)}</h1></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small" onclick="location.hash='#/run'">← Timeline</button>
-      <button class="btn small" id="dl">Download report.json</button><button class="btn small" onclick="location.hash='#/'">New run</button></div></div>
-    <div class="stats" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-top:12px">
-      <div class="stat"><b>${checks.length}</b><span>checks run</span></div>
-      <div class="stat ok"><b>${checks.filter((r) => r.data.verdict === "pass").length}</b><span>passed</span></div>
-      ${Object.entries(KIND).map(([k, v]) => `<div class="stat ${v.stat}"><b>${findings.filter((f) => f.kind === k).length}</b><span>${v.plural.toLowerCase()}</span></div>`).join("")}
-      <div class="stat"><b>$${(rep.cost?.total_usd || 0).toFixed(2)}</b><span>model cost${rep.mode === "replay" ? " (when recorded)" : ""}</span></div>
-    </div>
-    <div class="summary"><b>Agent summary.</b> ${esc(rep.summary)}
-      ${ev ? `<p style="margin:10px 0 0"><span class="score">Answer key: ${ev.found}/${ev.expected} planted problems found · ${ev.right_kind} with the right document type · ${ev.extra_findings.length} extra findings · ${ev.passes_wrongly_flagged.length} passes wrongly flagged</span></p>` : ""}</div>
-    <div class="tabs">${[["all", `All ${findings.length}`], ...Object.entries(KIND).map(([k, v]) => [k, `${v.doc} · ${v.plural} ${findings.filter((f) => f.kind === k).length}`])]
-      .map(([k, label]) => `<button data-f="${k}" class="${S.filter === k ? "on" : ""}">${esc(label)}</button>`).join("")}</div>
-    ${shown.map((f, i) => {
-      const r = rep.results[f.result_id], d = drafts[f.id];
-      return `<article class="fcard ${f.kind}">
-        <div class="ev">${f.evidence.map(img).join("")}</div>
-        <div>
-          <span class="chip ${f.kind}">${esc(d?.number || f.id)} · ${KIND[f.kind].label}</span>
-          <h3>${esc(f.title)}</h3><p style="margin:0">${esc(f.explanation)}</p>
-          <dl class="facts">${facts(r, f.claim_index).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
-          <div class="prov">${esc(r.id)} · ${esc(r.tool)}(${esc(Object.values(r.args).join(", "))}) · ${esc((r.data.models || []).join(", "))} · ${r.seconds}s${r.cached ? " (cached)" : ""}</div>
-          ${draftHtml(d, i === 0)}
-        </div></article>`;
-    }).join("")}
-    <details><summary>Every check (${results.length} results)</summary><div class="table-wrap"><table>
-      <tr><th>Result</th><th>Check</th><th>Arguments</th><th>Verdict</th><th>Models</th><th>Time</th></tr>
-      ${results.map((r) => `<tr><td>${esc(r.id)}</td><td>${esc(r.tool)}</td><td>${esc(Object.values(r.args).join(", "))}</td>
-        <td><span class="chip ${verdictClass(r.data.verdict)}">${esc(r.data.verdict)}</span></td><td class="small">${esc((r.data.models || []).join(", "))}</td>
-        <td class="small">${r.seconds}s${r.cached ? " cached" : ""}</td></tr>
-        ${(r.data.claims || []).map((c) => `<tr><td></td><td class="muted small">claim ${c.claim_index}</td><td class="small">${c.t_s.toFixed(1)} s: “${esc(c.claim)}”</td><td><span class="chip ${verdictClass(c.verdict)}">${esc(c.verdict)}</span></td><td class="small muted">${esc(c.method)}</td><td></td></tr>`).join("")}`).join("")}
-    </table></div></details>
-    <details><summary>Agent trace (${rep.agent.turns} turns, ${rep.agent.model})</summary><ol class="small">
-      ${rep.agent.trace.map((s) => s.type === "note" ? `<li class="muted">turn ${s.turn}: ${esc(s.text)}</li>`
-        : `<li>turn ${s.turn}: <span class="mono">${esc(s.tool)}(${esc(Object.entries(s.args).filter(([k]) => k !== "explanation").map(([, v]) => v).join(", ").slice(0, 120))})</span> → ${esc(s.brief)}</li>`).join("")}
-    </ol></details>
-  </div>`;
-  app.querySelectorAll("[data-f]").forEach((b) => (b.onclick = () => { S.filter = b.dataset.f; renderFindings(); }));
-  $("#dl").onclick = () => {
-    const { evidenceSrc, ...plain } = rep;
-    const url = URL.createObjectURL(new Blob([JSON.stringify(plain, null, 2)], { type: "application/json" }));
-    Object.assign(document.createElement("a"), { href: url, download: "groundtruth-report.json" }).click();
-  };
+  const passed = results.filter((r) => r.tool !== "read_nameplate" && r.data.verdict === "pass");
+  const ev = rep.evaluation;
+  const clean = ev && ev.found === ev.expected && !ev.extra_findings.length && !ev.passes_wrongly_flagged.length;
+  const when = (() => { const t = new Date(rep.finished_at); return isNaN(t) ? rep.finished_at : t.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }); })();
+  app.innerHTML = `
+  <div class="res-head"><div><div class="eyebrow">${rep.mode === "replay" ? "Recorded run" : "Live run"} · ${esc(when)} · ${rep.seconds} s · $${(rep.cost?.total_usd || 0).toFixed(2)} in model calls</div>
+    <h1>${esc(rep.project.name)}</h1></div>
+    <div class="ctas"><button class="btn small" data-act="back-run">← Back to the run</button>
+      <button class="btn small" data-act="download">Download report.json</button><button class="btn small" data-act="home">Start over</button></div></div>
+  ${ev ? `<div class="score${clean ? "" : " warn"}"><b>${clean ? "✓ " : ""}${ev.found} / ${ev.expected}</b><span>planted problems found · ${ev.right_kind} with the right document type ·
+    ${ev.extra_findings.length} extra findings · ${ev.passes_wrongly_flagged.length} correct items wrongly flagged</span></div>` : ""}
+  <div class="summary"><b>The agent's summary.</b> ${esc(rep.summary)}</div>
+  <div class="overview">${KINDS.map((k) => {
+    const fs = findings.filter((f) => f.kind === k);
+    return `<div class="ov ${k}"><h3>${KIND[k].plural} <span>${fs.length}</span></h3><p>${KIND[k].what} Drafted as a${k === "design_query" ? "" : "n"} ${KIND[k].paper}.</p>
+      ${fs.map((f) => `<button class="jump" data-jump="${esc(f.id)}">${esc(drafts[f.id]?.number || f.id)} · ${esc(f.title)}</button>`).join("") || `<p class="faint">None</p>`}</div>`;
+  }).join("")}</div>
+  <div class="filters"><div class="tabs" id="ftabs">${[["all", `All ${findings.length}`], ...KINDS.map((k) => [k, `${KIND[k].doc} · ${KIND[k].plural} (${findings.filter((f) => f.kind === k).length})`])]
+    .map(([k, label]) => `<button data-f="${k}" class="${S.filter === k ? "on" : ""}">${esc(label)}</button>`).join("")}</div></div>
+  <div id="fcards"></div>
+  <details class="box"><summary>What passed (${passed.length} checks)</summary><ul class="small">${passed.map((r) => `<li>${esc(plain(r))} <span class="faint">${esc(r.id)}</span></li>`).join("")}</ul></details>
+  <details class="box"><summary>Every check (${results.length} results)</summary><div class="table-wrap" style="margin-top:10px"><table>
+    <tr><th>Result</th><th>Check</th><th>Arguments</th><th>Verdict</th><th>Models</th><th>Time</th></tr>
+    ${results.map((r) => `<tr><td>${esc(r.id)}</td><td>${esc(r.tool)}</td><td>${esc(Object.values(r.args).join(", "))}</td>
+      <td><span class="chip ${tone(r.data.verdict)}">${esc(VERDICT[r.data.verdict] || r.data.verdict)}</span></td><td class="small">${esc([...new Set((r.data.models || []).map(modelName))].join(", "))}</td>
+      <td class="small">${r.seconds}s${r.cached ? " cached" : ""}</td></tr>
+      ${(r.data.claims || []).map((c) => `<tr><td></td><td class="muted small">claim ${c.claim_index}</td><td class="small">${c.t_s.toFixed(1)} s: “${esc(c.claim)}”</td>
+        <td><span class="chip ${tone(c.verdict)}">${esc(VERDICT[c.verdict] || c.verdict)}</span></td><td class="small muted">${esc(c.method)}</td><td></td></tr>`).join("")}`).join("")}
+  </table></div></details>
+  <details class="box"><summary>Agent trace (${rep.agent.turns} turns, ${esc(rep.agent.model)})</summary><ol class="small">
+    ${rep.agent.trace.map((s) => s.type === "note" ? `<li class="muted">turn ${s.turn}: ${esc(s.text)}</li>`
+      : `<li>turn ${s.turn}: <span class="mono">${esc(s.tool)}(${esc(Object.entries(s.args).filter(([k]) => k !== "explanation").map(([, v]) => v).join(", ").slice(0, 120))})</span> → ${esc(s.brief)}</li>`).join("")}
+  </ol></details>`;
+  paintFindingCards();
+  window.scrollTo({ top: 0, behavior: "instant" });
+}
+
+function paintFindingCards() {
+  const rep = S.report, box = $("#fcards");
+  if (!rep || !box) return;
+  const drafts = Object.fromEntries((rep.drafts || []).map((d) => [d.finding_id, d]));
+  const order = { nonconformance: 0, design_query: 1, reporting_discrepancy: 2 };
+  const shown = rep.findings.slice().sort((a, b) => order[a.kind] - order[b.kind]).filter((f) => S.filter === "all" || f.kind === S.filter);
+  box.innerHTML = shown.map((f) => findingCard(f, rep, drafts[f.id])).join("") || `<p class="muted">No findings of this kind.</p>`;
+}
+
+function setFilter(kind) {
+  S.filter = kind;
+  $$("#ftabs button").forEach((b) => b.classList.toggle("on", b.dataset.f === kind));
+  paintFindingCards();
+}
+
+function jumpTo(id) {
+  if (S.filter !== "all") setFilter("all");
+  document.getElementById(`f-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function downloadReport() {
+  const { evidenceSrc, ...plainReport } = S.report || {};
+  const url = URL.createObjectURL(new Blob([JSON.stringify(plainReport, null, 2)], { type: "application/json" }));
+  Object.assign(document.createElement("a"), { href: url, download: "groundtruth-report.json" }).click();
 }
 
 route();

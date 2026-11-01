@@ -13,6 +13,7 @@ samples/real/walk/real_walk.mp4
 
 # Web build outputs (contain third-party sample media)
 public/thumbs/
+public/examples/
 public/media/
 public/replays/
 dist/

@@ -1,6 +1,6 @@
 """Builds what the web app serves and the bundle that is deployed.
 
-  python scripts/build_web.py assets   # public/thumbs/ and public/media/: thumbnails and a 720p copy of the walk
+  python scripts/build_web.py assets   # public/thumbs/, public/media/, public/examples/: thumbnails, a 720p walk, upload examples
   python scripts/build_web.py record   # public/replays/demo-solar.ndjson: a real run (from the cache) saved as a replay
   python scripts/build_web.py dist     # dist/: app, gt, public, the demo package with file hashes, media, seed cache
 
@@ -26,6 +26,7 @@ from gt.package import Package  # noqa: E402
 DEMO = ROOT / "projects" / "demo-solar"
 PUBLIC = ROOT / "public"
 DIST = ROOT / "dist"
+EXAMPLES = ("NP-01", "NP-02", "NP-03")  # the upload page's "use example nameplates", at the size the browser would send
 KEYS = ROOT / "out" / "web" / "demo-cache-keys.json"
 
 
@@ -46,7 +47,10 @@ def assets() -> None:
             continue
         image = render_sheet(str(item.path), 1, 100) if item.type == "drawing_sheet" else load_image(str(item.path))
         fit_long_side(image.convert("RGB"), 960).save(dest, quality=84)
-    print(f"thumbnails: {thumbs}; walk video: {PUBLIC / 'media' / 'demo-solar' / 'walk.mp4'}")
+        if item.id in EXAMPLES:
+            (PUBLIC / "examples").mkdir(exist_ok=True)
+            fit_long_side(image.convert("RGB"), 2000).save(PUBLIC / "examples" / f"{item.id}.jpg", quality=86)
+    print(f"thumbnails: {thumbs}; walk video: {PUBLIC / 'media' / 'demo-solar' / 'walk.mp4'}; examples: {PUBLIC / 'examples'}")
 
 
 def record() -> None:

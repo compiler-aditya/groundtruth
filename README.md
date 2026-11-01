@@ -35,7 +35,7 @@ Needs ffmpeg (`brew install ffmpeg`). Results are cached by tool, arguments and 
 ## Web app
 
 ```bash
-.venv/bin/python scripts/build_web.py assets      # thumbnails and a 720p copy of the walk (from the fetched samples)
+.venv/bin/python scripts/build_web.py assets      # thumbnails, a 720p copy of the walk, example nameplates for the upload page
 .venv/bin/python scripts/build_web.py record      # saves a real run as the recorded run (and lists the cache it used)
 .venv/bin/uvicorn app:app --port 8000             # http://localhost:8000
 ```
