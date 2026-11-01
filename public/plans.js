@@ -426,12 +426,17 @@ window.GTPlans = (() => {
     ["room", "Draw a room", "R", icon(`<rect x="3" y="4.5" width="14" height="11"/><path d="M3 9.5h5v6"/>`)],
     ["door", "Add a door", "D", icon(`<path d="M3 16h14"/><path d="M5 16V5"/><path d="M5 5a11 11 0 0111 11" stroke-dasharray="2 2"/>`)],
     ["window", "Add a window", "W", icon(`<rect x="3" y="7.5" width="14" height="5"/><path d="M3 10h14"/>`)],
+    ["furniture", "Add furniture and fixtures", "F", icon(`<rect x="3" y="8" width="14" height="7" rx="1"/><path d="M5 8V5.5h10V8M3 15v1.5M17 15v1.5"/>`)],
   ];
+  const ITEM_GROUPS = [["Living", ["sofa", "armchair", "dining_table", "plant"]], ["Bedroom", ["bed_double", "bed_single", "wardrobe", "desk"]],
+    ["Kitchen", ["counter", "stove", "kitchen_sink", "fridge"]], ["Bathroom", ["toilet", "basin", "shower", "bathtub"]],
+    ["Other", ["meeting_table", "stairs", "car"]]];
   const HINTS = {
     select: "Click a room to edit it · drag to move · drag its edges to resize · drag empty space to pan · scroll to zoom",
     room: "Drag to draw a room. It snaps to the 10 cm grid and to other walls; hold Alt for free placement.",
     door: "Click on a wall to put a door there · drag a door to slide it along its wall · Esc when done",
     window: "Click on a wall to put a window there · drag a window to slide it · Esc when done",
+    furniture: "Pick a piece in the panel on the right, then click on the plan to place it",
   };
   const GRID = 0.1, MIN = 0.5;
   const g = (v, step = GRID) => r2(Math.round(v / step) * step);
@@ -455,7 +460,8 @@ window.GTPlans = (() => {
     E.tool = tool;
     E.hover = null;
     E.ghost = null;
-    if (tool === "room") E.sel = null;
+    if (tool === "room" || tool === "furniture") E.sel = null;
+    E.placing = null;
     render(true);
   }
   function select(kind, id) { E.sel = kind ? { kind, id } : null; render(true); }
@@ -534,6 +540,17 @@ window.GTPlans = (() => {
       E.drag = { mode: "draw", x0: x.v, y0: y.v, before: snapshot() };
       return;
     }
+    if (E.tool === "furniture" && E.placing) {
+      const [, w, h] = ITEM_TYPES[E.placing], before = snapshot();
+      const it = { id: uid("i"), type: E.placing, cx: g(p.x, 0.05), cy: g(p.y, 0.05), w, h, rot: 0 };
+      E.plan.items.push(it);
+      E.hover = null;
+      E.tool = "select";
+      E.placing = null;
+      E.sel = { kind: "item", id: it.id };
+      commit(before);
+      return;
+    }
     if ((E.tool === "door" || E.tool === "window") && !ev.target.closest("[data-kind=opening]")) {
       const spot = wallAt(p, OPENING_TYPES[E.tool][1]);
       if (spot?.ok) {
@@ -567,6 +584,7 @@ window.GTPlans = (() => {
     const d = E.drag;
     if (!d) {
       if (E.tool === "door" || E.tool === "window") { E.hover = wallAt(toWorld(ev), OPENING_TYPES[E.tool][1]); render(); }
+      if (E.tool === "furniture" && E.placing) { const q = toWorld(ev); E.hover = { item: E.placing, cx: g(q.x, 0.05), cy: g(q.y, 0.05) }; render(); }
       return;
     }
     const p = toWorld(ev), free = ev.altKey;
@@ -677,6 +695,8 @@ window.GTPlans = (() => {
     "dup-sel": duplicateSel,
     "del-sel": deleteSel,
     "select-room": (el) => select("room", el.dataset.id),
+    "pick-item": (el) => { E.placing = el.dataset.type; E.hover = null; render(true); },
+    rotate: () => { const it = selected(); if (!it || E.sel.kind !== "item") return; const before = snapshot(); it.rot = ((it.rot || 0) + 90) % 360; commit(before); },
     "flip-hinge": () => { const op = selected(), before = snapshot(); op.hinge = op.hinge === "end" ? "start" : "end"; commit(before); },
     "flip-swing": () => { const op = selected(), before = snapshot(); op.swing = op.swing === "out" ? "in" : "out"; commit(before); },
     deselect: () => select(null),
@@ -699,6 +719,7 @@ window.GTPlans = (() => {
     const arrows = { arrowleft: [-step, 0], arrowright: [step, 0], arrowup: [0, -step], arrowdown: [0, step] };
     if (arrows[key] && E.sel) { e.preventDefault(); nudge(...arrows[key]); return; }
     if (key === " ") { E.space = true; e.preventDefault(); return; }
+    if (key === "r" && e.shiftKey) { EDIT_ACTIONS.rotate(); return; }
     if (key === "escape") {
       if (E.drag?.mode === "draw") { E.drag = null; E.ghost = null; render(); }
       else if (E.tool !== "select") setTool("select");
@@ -727,7 +748,10 @@ window.GTPlans = (() => {
       out.push(`<rect x="${X(gh.x)}" y="${Y(gh.y)}" width="${L(gh.w)}" height="${L(gh.h)}" fill="${ACCENT}" fill-opacity=".12" stroke="${ACCENT}" stroke-width="2" stroke-dasharray="6 4" pointer-events="none"/>`);
       out.push(tag(X(gh.x + gh.w / 2), Y(gh.y) - 10, `${gh.w.toFixed(2)} × ${gh.h.toFixed(2)} m · ${fmtA(gh.w * gh.h)}`));
     }
-    if (E.hover && !E.drag) {
+    if (E.hover?.item && !E.drag) {
+      const [, w, h] = ITEM_TYPES[E.hover.item];
+      out.push(`<g opacity=".55" pointer-events="none">${drawItem({ type: E.hover.item, cx: E.hover.cx, cy: E.hover.cy, w, h, rot: 0 }, X, Y, L)}</g>`);
+    } else if (E.hover && !E.drag) {
       const h = E.hover, hg = openingGeom(E.plan, { ...h, type: E.tool });
       if (hg) {
         const color = h.ok ? ACCENT : "#d92d20";
@@ -818,7 +842,8 @@ window.GTPlans = (() => {
     if (!force && key === side._key && side.contains(document.activeElement)) { paintLive(); return; }
     side._key = key;
     const s = selected();
-    side.innerHTML = !s ? summaryPanel() : E.sel.kind === "room" ? roomPanel(s) : E.sel.kind === "opening" ? openingPanel(s) : summaryPanel();
+    side.innerHTML = !s ? (E.tool === "furniture" ? palettePanel() : summaryPanel())
+      : E.sel.kind === "room" ? roomPanel(s) : E.sel.kind === "opening" ? openingPanel(s) : itemPanel(s);
     bindFields(side);
     paintLive();
   }
@@ -854,6 +879,28 @@ window.GTPlans = (() => {
       <p class="tiny muted">Drag it along the wall to move it. Wall start is the left end of a top or bottom wall, the top end of a side wall.</p>`;
   }
 
+  function palettePanel() {
+    const preview = (type) => {
+      const [, w, h] = ITEM_TYPES[type], s = Math.min(46 / w, 34 / h);
+      return `<svg viewBox="0 0 56 42" width="56" height="42">${drawItem({ type, cx: 28 / s, cy: 21 / s, w, h, rot: 0 }, (x) => x * s, (y) => y * s, (d) => d * s)}</svg>`;
+    };
+    return `<div class="pe-head"><h3>Furniture and fixtures</h3><button class="link small" data-pact="tool" data-tool="select">Done</button></div>
+      <p class="small muted" style="margin:0 0 6px">Pick one, then click on the plan to place it.</p>
+      ${ITEM_GROUPS.map(([group, types]) => `<h4>${group}</h4><div class="pe-palette">${types.map((t) => `<button class="${E.placing === t ? "on" : ""}" data-pact="pick-item" data-type="${t}"
+        title="${ITEM_TYPES[t][0]}">${preview(t)}<span>${ITEM_TYPES[t][0]}</span></button>`).join("")}</div>`).join("")}`;
+  }
+
+  const roomAt = (x, y) => E.plan.rooms.find((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
+  function itemPanel(it) {
+    const room = roomAt(it.cx, it.cy);
+    return `<div class="pe-head"><h3>${ITEM_TYPES[it.type]?.[0] || "Item"}</h3><button class="link small" data-pact="deselect">Plan summary</button></div>
+      <p class="small muted" style="margin:0 0 10px">${room ? `In ${esc(room.name)}` : "Outside the rooms"}</p>
+      <div class="pe-row">${num("w", "Width (m)", it.w, 'min="0.2"')}${num("h", "Depth (m)", it.h, 'min="0.2"')}</div>
+      <div class="pe-actions"><button class="btn small" data-pact="rotate" title="Shift+R">Rotate 90°</button><button class="btn small" data-pact="dup-sel" title="⌘D">Duplicate</button>
+        <button class="btn small danger" data-pact="del-sel">Delete</button></div>
+      <p class="tiny muted">Drag to move; arrow keys nudge by 10 cm. Width and depth are before rotation.</p>`;
+  }
+
   function openingIssues(plan) {
     const gs = plan.openings.map((op) => openingGeom(plan, op)).filter(Boolean), out = [];
     gs.forEach((a, i) => gs.slice(i + 1).forEach((b) => {
@@ -870,6 +917,7 @@ window.GTPlans = (() => {
     return `<h3>Plan summary</h3>
       <div class="pe-stats"><div><b>${fmtA(totalArea(p))}</b><span>floor area</span></div><div><b>${p.rooms.length}</b><span>rooms</span></div>
         <div><b>${doors}</b><span>doors</span></div><div><b>${windows}</b><span>windows</span></div></div>
+      <p class="small muted" style="margin:8px 0 0">${p.items.length} pieces of furniture and fixtures</p>
       ${issues.length ? `<div class="pe-issues"><b>Check the plan</b><ul>${issues.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
       <h4>Rooms</h4>${p.rooms.length ? `<table class="pe-table">${p.rooms.map((r) => `<tr data-pact="select-room" data-id="${r.id}" data-select><td><span class="swatch" style="background:${(ROOM_TYPES[r.type] || ROOM_TYPES.other)[1]}"></span>${esc(r.name)}</td>
         <td class="num">${fmtA(area(r))}</td></tr>`).join("")}</table>` : `<p class="small muted">No rooms yet. Pick <b>Draw a room</b> (R) and drag on the grid.</p>`}`;
@@ -890,7 +938,7 @@ window.GTPlans = (() => {
     if (el.type === "number") {
       let v = parseFloat(el.value);
       if (!isFinite(v)) return;
-      if (prop === "w" || prop === "h") v = Math.max(MIN, v);
+      if (prop === "w" || prop === "h") v = Math.max(E.sel.kind === "room" ? MIN : 0.2, v);
       if (prop === "width" && E.sel.kind === "opening") v = clamp(v, 0.4, sideLength(roomOf(E.plan, s.room), s.side));
       s[prop] = r2(v);
       if (final) el.value = s[prop];

@@ -75,3 +75,10 @@ body.studio .foot { display: none; }
 #pc .h-nw, #pc .h-se { cursor: nwse-resize; }
 #pc .h-ne, #pc .h-sw { cursor: nesw-resize; }
 @media (min-width: 901px) { body.studio { overflow: hidden; } }
+.pe-palette { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.pe-palette button { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 8px; background: #fbfaf6;
+  color: #22211d; cursor: pointer; font-size: 12px; text-align: left; }
+.pe-palette button:hover { border-color: var(--faint); }
+.pe-palette button.on { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
+.pe-palette svg { flex: none; }
+#pc.tool-furniture { cursor: copy; }
