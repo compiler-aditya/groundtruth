@@ -24,6 +24,7 @@ MIN_SIDE = {"bedroom": 2.4, "living": 3.0, "kitchen": 1.8, "bathroom": 1.2, "hal
 NEEDS_WINDOW = {"bedroom", "living", "kitchen", "office", "meeting", "dining", "reception"}
 MIN_DOOR = 0.8
 MAX_ROOMS, MAX_SIZE = 60, 60.0
+BUILDING_KINDS = ("house", "apartment", "office", "shop", "clinic", "other")
 
 
 def r2(v: float) -> float:
@@ -139,6 +140,9 @@ def check(plan: dict) -> dict:
         for op2, sp2 in spans[i + 1:]:
             if sp2 and sp[0] == sp2[0] and abs(sp[1] - sp2[1]) < EPS and sp[2] < sp2[3] - EPS and sp2[2] < sp[3] - EPS:
                 errors.append(f"Two openings overlap on a wall of {name.get(op['room'])}")
+        if op["type"] == "window" and connects(plan, op) - {"outside"}:
+            behind = ", ".join(name[i] for i in connects(plan, op) - {"outside"})
+            warnings.append(f"A window of {name.get(op['room'])} ({op['id']}) is on a wall shared with {behind}; move it to an outside wall or remove it")
         if op["type"] == "door" and op["width"] < MIN_DOOR - EPS:
             warnings.append(f"The door into {name.get(op['room'])} is {op['width']:.2f} m wide; {MIN_DOOR:.2f} m is a usual minimum")
     # reachability: doors and passages join rooms; an entrance is a door to the outside
@@ -223,6 +227,7 @@ class PlanBuilder:
         self.plan = copy.deepcopy(clean(plan))
         self.finished: str | None = None
         self.name: str | None = None
+        self.kind: str | None = None
 
     def call(self, tool: str, args: dict) -> dict:
         method = getattr(self, f"tool_{tool}", None)
@@ -351,8 +356,12 @@ class PlanBuilder:
                       key=lambda run: (run[2] - run[1]), reverse=True)
         if not runs:
             have = {SIDE_NAME[s]: r2(sum(q - p for p, q in exterior_runs(self.plan, room, s))) for s in "nsew"}
+            fits = [f"{o['name']} ({', '.join(f'{SIDE_NAME[s]} {q - p:.2f} m' for s in 'nsew' for p, q in exterior_runs(self.plan, o, s) if q - p >= need)})"
+                    for o in self.plan["rooms"] if o["id"] != room["id"]
+                    and any(q - p >= need for s in "nsew" for p, q in exterior_runs(self.plan, o, s))]
             raise ValueError(f"{room['name']} has no outside wall {'on the ' + SIDE_NAME[SIDES[side.lower()]] + ' ' if side else ''}"
-                             f"long enough ({need:.2f} m needed); its outside walls: {have}")
+                             f"long enough ({need:.2f} m needed); its outside walls: {have}. "
+                             + (f"Rooms with a long enough outside wall: {'; '.join(fits[:5])}" if fits else "No room has one: make a room reach the outside"))
         return runs
 
     def tool_add_entrance(self, room: str, side: str | None = None, width: float = 0.9) -> dict:
@@ -392,7 +401,7 @@ class PlanBuilder:
     def tool_check_plan(self) -> dict:
         return {**check(self.plan), "plan": describe(self.plan)}
 
-    def tool_finish(self, summary: str, name: str | None = None) -> dict:
+    def tool_finish(self, summary: str, name: str | None = None, kind: str | None = None) -> dict:
         result = check(self.plan)
         if not self.plan["rooms"]:
             raise ValueError("the plan has no rooms yet")
@@ -400,4 +409,5 @@ class PlanBuilder:
             raise ValueError("not finished, fix these first: " + "; ".join(result["errors"]))
         self.finished = summary.strip()
         self.name = (name or "").strip()[:80] or None
+        self.kind = kind if kind in BUILDING_KINDS else None
         return {"ok": True, "warnings_left": result["warnings"], "total_area_m2": result["total_area_m2"]}

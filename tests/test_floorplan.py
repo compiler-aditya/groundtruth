@@ -54,6 +54,11 @@ assert result["total_area_m2"] == 27 + 18 + 12 + 12.54 + 7.92, result
 assert exterior_runs(b.plan, b._room("Hallway"), "n") == []
 assert exterior_runs(b.plan, b._room("Hallway"), "s") == [(6.2, 10.0)]
 
+# a room built against a wall with windows turns them into windows onto that room: flagged
+ok(b.call("add_room", {"name": "Porch", "type": "other", "width": 2, "depth": 3, "next_to": "Kitchen", "side": "east", "align": "center"}))
+assert any("A window of Kitchen" in w and "shared with Porch" in w for w in check(b.plan)["warnings"]), check(b.plan)["warnings"]
+ok(b.call("remove_room", {"room": "Porch"}))
+
 # moving a room re-checks overlaps; finishing records the summary
 assert "overlap" in b.call("update_room", {"room": "Kitchen", "x": 5})["error"]
 ok(b.call("update_room", {"room": "Bedroom", "name": "Main bedroom"}))

@@ -10,7 +10,7 @@ import time
 from typing import Callable
 
 from .config import PRICE, WONDER, meta_client
-from .floorplan import ROOM_TYPES, PlanBuilder, check, describe
+from .floorplan import BUILDING_KINDS, ROOM_TYPES, PlanBuilder, check, describe
 from .spark import Usage
 
 NUM = {"type": "number"}
@@ -49,7 +49,8 @@ PLAN_TOOLS = [
         "(rooms without windows, rooms smaller than usual), the total floor area, and every room with its neighbours.",
         {}, []),
     _fn("finish", "Finish with a short summary for the client. Refused while check_plan reports errors.",
-        {"summary": {"type": "string"}, "name": {"type": "string", "description": "a short name for the plan"}}, ["summary"]),
+        {"summary": {"type": "string"}, "name": {"type": "string", "description": "a short name for the plan"},
+         "kind": {"type": "string", "enum": list(BUILDING_KINDS), "description": "the type of building"}}, ["summary"]),
 ]
 
 SYSTEM = (
@@ -145,6 +146,6 @@ def run_planner(request: str, plan: dict | None = None, *, model: str = WONDER, 
             conversation.append({"type": "function_call_output", "call_id": call.call_id, "output": json.dumps(output)})
         if builder.finished:
             break
-    return {"plan": builder.plan, "finished": bool(builder.finished), "summary": builder.finished, "name": builder.name,
+    return {"plan": builder.plan, "finished": bool(builder.finished), "summary": builder.finished, "name": builder.name, "kind": builder.kind,
             "check": check(builder.plan), "model": model, "turns": turn, "seconds": round(time.time() - started, 1),
             "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens, "cost_usd": round(usage.cost, 4), "trace": trace}
