@@ -87,8 +87,10 @@ document.addEventListener("click", (e) => {
 window.addEventListener("hashchange", route);
 async function route() {
   const hash = location.hash || "#/";
-  const page = ["run", "findings", "upload", "how"].find((p) => hash.startsWith(`#/${p}`)) || "home";
-  $$(".top nav a[data-nav]").forEach((a) => a.classList.toggle("on", a.dataset.nav === page));
+  const page = ["run", "findings", "upload", "how", "plans", "plan/"].find((p) => hash.startsWith(`#/${p}`))?.replace("/", "") || "home";
+  $$(".top nav a[data-nav]").forEach((a) => a.classList.toggle("on", a.dataset.nav === page || (page === "plan" && a.dataset.nav === "plans")));
+  document.body.classList.toggle("studio", page === "plan");
+  if (page === "plans" || page === "plan") { window.scrollTo({ top: 0, behavior: "instant" }); return window.GTPlans.route(hash, app); }
   if (page === "run") return renderRun();
   if (page === "findings") return renderFindings();
   if (page === "upload") return renderUpload();
