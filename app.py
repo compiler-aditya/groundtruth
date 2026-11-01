@@ -8,12 +8,14 @@ where consecutive requests may reach different instances. The static UI is in pu
 Guards for a public deployment, all per instance: at most GT_MAX_CONCURRENT live runs at once (default 3) and
 GT_RUNS_PER_HOUR per visitor (default 8); uploads limited to GT_MAX_FILES files (default 8) of photos or PDFs;
 GT_UPLOAD_CODE, if set, is required for uploads. Video uploads only work where ffmpeg is installed (not Vercel).
+The floor plan studio's design assistant (/api/plan/assist) counts against the same run limits.
 """
 
 import csv
 import io
 import json
 import os
+import queue
 import re
 import shutil
 import tempfile
@@ -22,13 +24,16 @@ import time
 import uuid
 from collections import defaultdict, deque
 from pathlib import Path
+from typing import Callable
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from gt.floorplan import clean
 from gt.live import LiveRun
 from gt.package import Package
+from gt.planner import run_planner
 
 ROOT = Path(__file__).resolve().parent
 HOSTED = bool(os.environ.get("VERCEL"))
@@ -209,6 +214,52 @@ async def run_upload(
     run = LiveRun(package, root / "run", CACHE, seed_cache=SEED, mode="live", on_finish=_release)
     return _stream(run, {"package": "upload", "name": package.name, "captures": len(package.items),
                          "package_info": _public(package, None)})
+
+
+def _job(work: Callable[[Callable[[dict], None]], dict], intro: dict) -> StreamingResponse:
+    """Streams one admitted job as NDJSON: start, the events work() emits, then done (or error). Frees the run slot."""
+    events: queue.Queue = queue.Queue()
+    started = time.time()
+
+    def emit(event: dict) -> None:
+        events.put({"t": round(time.time() - started, 2), **event})
+
+    def runner() -> None:
+        try:
+            emit({"type": "done", **work(emit)})
+        except BaseException as error:  # includes SystemExit from a missing API key
+            emit({"type": "error", "message": f"{type(error).__name__}: {error}"[:400]})
+        finally:
+            _release()
+            events.put(None)
+
+    def lines():
+        emit({"type": "start", **intro})
+        threading.Thread(target=runner, daemon=True).start()
+        while True:
+            try:
+                event = events.get(timeout=10)
+            except queue.Empty:
+                yield json.dumps({"t": round(time.time() - started, 2), "type": "ping"}) + "\n"
+                continue
+            if event is None:
+                return
+            yield json.dumps(event, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(lines(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/plan/assist")
+async def plan_assist(request: Request) -> StreamingResponse:
+    """The design assistant: Muse Wonder lays out a new plan, or changes the given one, from a description."""
+    body = await request.json()
+    text = re.sub(r"\s+", " ", str(body.get("request") or "")).strip()
+    if not 3 <= len(text) <= 800:
+        raise HTTPException(400, "Describe what you want in 3 to 800 characters.")
+    edit = body.get("mode") == "edit"
+    plan = clean(body.get("plan")) if edit else None
+    _admit(request)
+    return _job(lambda emit: run_planner(text, plan, on_event=emit), {"mode": "edit" if edit else "new", "request": text})
 
 
 @app.get("/")
