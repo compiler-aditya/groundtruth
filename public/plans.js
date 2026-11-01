@@ -370,7 +370,9 @@ window.GTPlans = (() => {
       <p class="muted" style="max-width:780px;margin:0">Drag out rooms, put doors and windows on the walls, furnish it, and watch the areas add up.
       Homeowners can sketch what they want; architects can make it exact by typing dimensions. The plan is saved in this browser and can be exported as a drawing sheet.</p></div>
     <section class="block"><h2 class="section" style="font-size:19px">Start a new plan</h2>
-      <div class="plan-grid">${Object.entries(TEMPLATES).map(([key, t]) => {
+      <div class="plan-grid"><button class="plan-card ai" data-pact="new-ai"><div class="ai-art" aria-hidden="true">✨</div><div class="pc-body"><b>Describe it to the AI</b>
+        <span class="muted small">Say what you need, for example “a three-bedroom house of about 110 m²”. Muse Wonder lays out the rooms, doors and windows; the code checks every step.</span></div></button>
+        ${Object.entries(TEMPLATES).map(([key, t]) => {
         const p = t.make();
         return `<button class="plan-card" data-pact="new" data-template="${key}">${thumb(p)}<div class="pc-body"><b>${esc(t.name)}</b>
           <span class="muted small">${esc(t.text)}</span>${p.rooms.length ? `<span class="faint tiny">${p.rooms.length} rooms · ${fmtA(totalArea(p))}</span>` : ""}</div></button>`;
@@ -412,6 +414,7 @@ window.GTPlans = (() => {
     if (!el) return;
     const act = el.dataset.pact;
     if (act === "new") newPlan(el.dataset.template);
+    else if (act === "new-ai") { E.openAssist = true; newPlan("blank"); }
     else if (act === "import") $("#plan-import")?.click();
     else if (act === "dup") {
       const src = getPlan(el.dataset.id);
@@ -423,7 +426,10 @@ window.GTPlans = (() => {
   });
 
   /* ---------------- editor ---------------- */
-  const E = { plan: null, view: null, sel: null, tool: "select", undo: [], redo: [], drag: null, hover: null, ghost: null, guides: [], space: false, saveTimer: 0, savedOk: true };
+  const E = { plan: null, view: null, sel: null, tool: "select", undo: [], redo: [], drag: null, hover: null, ghost: null, guides: [], space: false, saveTimer: 0, savedOk: true,
+    assist: { open: false, running: false, mode: "edit", text: "", feed: [], result: null, error: null }, flash: new Set(), openAssist: false };
+  const AI = { ready: true };
+  fetch("/api/health").then((r) => r.json()).then((h) => { AI.ready = h?.keys?.meta !== false; }).catch(() => {});
   const EDIT_ACTIONS = {};
 
   function renderEditor(app, id) {
@@ -433,7 +439,9 @@ window.GTPlans = (() => {
         <a class="btn" href="#/plans">← All plans</a></div>`;
       return;
     }
-    Object.assign(E, { plan, sel: null, tool: "select", undo: [], redo: [], drag: null, hover: null, ghost: null, guides: [], view: null });
+    Object.assign(E, { plan, sel: null, tool: "select", undo: [], redo: [], drag: null, hover: null, ghost: null, guides: [], view: null, flash: new Set(),
+      assist: { open: E.openAssist, running: false, mode: plan.rooms.length ? "edit" : "new", text: "", feed: [], result: null, error: null } });
+    E.openAssist = false;
     app.innerHTML = `
     <div class="pe" id="plan-editor">
       <div class="pe-top">
@@ -442,6 +450,7 @@ window.GTPlans = (() => {
         <select id="pe-kind" aria-label="Building type">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${plan.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select>
         <span class="pe-status small muted" id="pe-status"></span>
         <span class="pe-spacer"></span>
+        <button class="btn small primary" data-pact="assist" title="Describe what you want; Muse Wonder lays it out">✨ Design with AI</button>
         <details class="pe-menu" id="pe-export"><summary class="btn small">Export</summary><div class="pe-menu-list">
           <button data-pact="export-png">Drawing sheet (PNG)</button><button data-pact="export-svg">Drawing sheet (SVG)</button>
           <button data-pact="export-json">Plan file (JSON), to back up or move</button></div></details>
@@ -607,6 +616,7 @@ window.GTPlans = (() => {
 
   function onPointerDown(ev) {
     if (ev.button !== 0 && ev.button !== 1) return;
+    if (E.assist.running) { E.drag = { mode: "pan", start: toWorld(ev), view: { ...E.view } }; return; }
     try { $("#pc").setPointerCapture(ev.pointerId); } catch { /* synthetic events have no capturable pointer */ }
     const p = toWorld(ev);
     if (ev.button === 1 || E.space) { E.drag = { mode: "pan", start: p, view: { ...E.view } }; return; }
@@ -784,6 +794,7 @@ window.GTPlans = (() => {
   document.addEventListener("keydown", (e) => {
     if (!$("#plan-editor")) return;
     const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || "");
+    if (E.assist.running && !typing) return;
     const mod = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
     if (mod && (key === "z" || key === "y")) {
       if (typing) return;
@@ -821,6 +832,10 @@ window.GTPlans = (() => {
     for (const gd of E.guides || []) {
       out.push(gd.o === "v" ? `<line x1="${X(gd.c)}" y1="0" x2="${X(gd.c)}" y2="4000" stroke="#e8590c" stroke-dasharray="5 4" pointer-events="none"/>`
         : `<line x1="0" y1="${Y(gd.c)}" x2="6000" y2="${Y(gd.c)}" stroke="#e8590c" stroke-dasharray="5 4" pointer-events="none"/>`);
+    }
+    for (const id of E.flash) {
+      const r = roomOf(E.plan, id);
+      if (r) out.push(`<rect x="${X(r.x)}" y="${Y(r.y)}" width="${L(r.w)}" height="${L(r.h)}" fill="${ACCENT}" fill-opacity=".14" stroke="${ACCENT}" stroke-width="3" pointer-events="none"/>`);
     }
     if (E.ghost) {
       const gh = E.ghost;
@@ -917,11 +932,11 @@ window.GTPlans = (() => {
   function paintSide(force) {
     const side = $("#pe-side");
     if (!side) return;
-    const key = E.sel ? `${E.sel.kind}:${E.sel.id}` : "plan";
+    const key = E.assist.open ? "assist" : E.sel ? `${E.sel.kind}:${E.sel.id}` : "plan";
     if (!force && key === side._key && side.contains(document.activeElement)) { paintLive(); return; }
     side._key = key;
     const s = selected();
-    side.innerHTML = !s ? (E.tool === "furniture" ? palettePanel() : summaryPanel())
+    side.innerHTML = E.assist.open ? assistPanel() : !s ? (E.tool === "furniture" ? palettePanel() : summaryPanel())
       : E.sel.kind === "room" ? roomPanel(s) : E.sel.kind === "opening" ? openingPanel(s) : itemPanel(s);
     bindFields(side);
     paintLive();
@@ -1010,6 +1025,10 @@ window.GTPlans = (() => {
   }
 
   function bindFields(side) {
+    const text = $("#assist-text", side);
+    if (text) text.oninput = () => { E.assist.text = text.value; };
+    const feed = $("#assist-feed", side);
+    if (feed && E.assist.running) side.scrollTop = side.scrollHeight;
     for (const el of $$("[data-meta]", side)) el.oninput = () => { E.plan[el.dataset.meta] = el.value.trim(); changed(false); };
     for (const el of $$("[data-prop]", side)) {
       el.onfocus = () => { E.fieldBefore = snapshot(); };
@@ -1041,6 +1060,114 @@ window.GTPlans = (() => {
     } else s[prop] = el.value;
     render();
   }
+
+  /* ---------------- design assistant ---------------- */
+  const EX_NEW = ["A three-bedroom family house of about 110 m² with an open kitchen and living area, two bathrooms and a hallway",
+    "A one-bedroom apartment of about 50 m² with a balcony", "A small dental clinic with a reception, a waiting room, two treatment rooms, a staff room, a WC and a store",
+    "A café of about 80 m² with seating, a counter, a kitchen, a store and two WCs"];
+  const EX_EDIT = ["Add a home office of about 9 m² next to the living room", "Give the main bedroom its own bathroom", "Add a single garage on the west side"];
+  const short = (t) => t.split(" ").slice(0, 5).join(" ") + "…";
+
+  function assistPanel() {
+    const A = E.assist, hasRooms = E.plan.rooms.length > 0, mode = hasRooms ? A.mode : "new", examples = mode === "edit" ? EX_EDIT : EX_NEW;
+    const feed = A.feed.map((f) => f.kind === "note" ? `<div class="msg">${esc(f.text)}</div>`
+      : f.kind === "turn" ? `<div class="turn">${esc(f.text)}</div>`
+      : `<div class="ev ${f.kind}"><span>${f.kind === "ok" ? "✓" : "✗"}</span><span>${esc(f.text)}</span></div>`).join("");
+    const r = A.result;
+    const resultBox = r ? `<div class="assist-done ${r.finished ? "" : "warn"}"><b>${r.finished ? "✓ Done" : "Stopped before the plan passed its checks"}</b>
+        <span class="small">${r.check.rooms} rooms · ${fmtA(r.check.total_area_m2)} · ${r.turns} turns · ${r.seconds} s · $${(r.cost_usd || 0).toFixed(2)}</span>
+        ${r.summary ? `<p>${esc(r.summary)}</p>` : ""}
+        ${r.check.errors.length ? `<ul class="bad">${r.check.errors.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : ""}
+        ${r.check.warnings.length ? `<p class="tiny muted" style="margin:6px 0 2px">Worth a look:</p><ul>${r.check.warnings.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : ""}
+        <div class="pe-actions" style="margin-top:8px"><button class="btn small" data-pact="undo">Undo the assistant's changes</button></div>
+        <p class="tiny muted">Furniture isn't placed by the assistant yet: add it with the Furniture tool (F).</p></div>` : "";
+    return `<div class="pe-head"><h3>✨ Design assistant</h3><button class="link small" data-pact="assist-close">Close</button></div>
+      <p class="small muted" style="margin:0 0 10px">Describe what you want. Muse Wonder lays out rooms, doors and windows with the editor's own tools;
+        the code measures every step and refuses anything that overlaps or doesn't fit.</p>
+      ${hasRooms ? `<div class="pe-seg"><button data-pact="assist-mode" data-mode="edit" class="${mode === "edit" ? "on" : ""}" ${A.running ? "disabled" : ""}>Change this plan</button>
+        <button data-pact="assist-mode" data-mode="new" class="${mode === "new" ? "on" : ""}" ${A.running ? "disabled" : ""}>Start a new layout</button></div>` : ""}
+      <textarea id="assist-text" maxlength="800" rows="4" placeholder="${esc(mode === "edit" ? "e.g. " + EX_EDIT[0] : "e.g. " + EX_NEW[0])}" ${A.running ? "disabled" : ""}>${esc(A.text)}</textarea>
+      <div class="pe-chips">${examples.map((t) => `<button data-pact="assist-example" data-text="${esc(t)}" title="${esc(t)}" ${A.running ? "disabled" : ""}>${esc(short(t))}</button>`).join("")}</div>
+      <button class="btn primary" style="width:100%" data-pact="assist-run" ${A.running || !AI.ready ? "disabled" : ""}>${A.running ? `<span class="spin"></span> Designing… a minute or two` : mode === "new" ? "Design it" : "Make the change"}</button>
+      ${AI.ready ? "" : `<p class="note-off">The assistant is off on this deployment (no API key).</p>`}
+      ${mode === "new" && hasRooms && !A.running && !r ? `<p class="tiny muted">This replaces the rooms, doors and windows. One undo brings them back.</p>` : ""}
+      ${A.error ? `<p class="assist-err">${esc(A.error)}</p>` : ""}
+      ${feed ? `<div class="assist-feed" id="assist-feed">${feed}</div>` : ""}${resultBox}`;
+  }
+
+  function applyAssistPlan(p) {
+    const before = new Set(E.plan.rooms.map((r) => r.id));
+    E.plan.rooms = p.rooms;
+    E.plan.openings = p.openings;
+    E.flash = new Set(p.rooms.filter((r) => !before.has(r.id)).map((r) => r.id));
+    if (E.assist.runMode === "new" || p.rooms.some((r) => !before.has(r.id))) fitToScreen();
+  }
+
+  async function runAssist() {
+    const A = E.assist, text = A.text.trim(), planId = E.plan.id;
+    if (text.length < 3) { A.error = "Describe what you want first, or pick an example."; render(true); return; }
+    const mode = E.plan.rooms.length ? A.mode : "new";
+    Object.assign(A, { running: true, feed: [], result: null, error: null, before: snapshot(), runMode: mode });
+    if (mode === "new") { E.plan.rooms = []; E.plan.openings = []; E.plan.items = []; }
+    E.sel = null;
+    E.tool = "select";
+    render(true);
+    const live = () => E.plan?.id === planId && $("#plan-editor");
+    const fail = (message) => {
+      if (!live()) return;
+      Object.assign(A, { running: false, error: `The assistant stopped: ${message} Your plan is back as it was.` });
+      E.flash = new Set();
+      restore(A.before);
+    };
+    try {
+      const res = await fetch("/api/plan/assist", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request: text, mode, plan: mode === "edit" ? { rooms: E.plan.rooms, openings: E.plan.openings, items: [] } : null }) });
+      if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(body.detail || `the server answered ${res.status}.`); }
+      const reader = res.body.getReader(), decoder = new TextDecoder();
+      let buf = "", done = false;
+      while (!done) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buf += decoder.decode(chunk.value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line || !live()) continue;
+          const ev = JSON.parse(line);
+          if (ev.type === "note") A.feed.push({ kind: "note", text: ev.text });
+          else if (ev.type === "turn") A.feed.push({ kind: "turn", text: `Turn ${ev.turn} · thought for ${ev.thinking_s} s · ${ev.calls} tool call${ev.calls === 1 ? "" : "s"}` });
+          else if (ev.type === "tool") { A.feed.push({ kind: ev.ok ? "ok" : "no", text: ev.brief }); if (ev.plan) applyAssistPlan(ev.plan); }
+          else if (ev.type === "error") throw new Error(ev.message);
+          else if (ev.type === "done") {
+            done = true;
+            applyAssistPlan(ev.plan);
+            E.flash = new Set();
+            if (mode === "new" && ev.name) { E.plan.name = ev.name; const n = $("#pe-name"); if (n) n.value = ev.name; }
+            if (mode === "new" && KINDS[ev.kind]) { E.plan.kind = ev.kind; const k = $("#pe-kind"); if (k) k.value = ev.kind; }
+            Object.assign(A, { running: false, result: ev, text: "", mode: "edit" });
+            E.undo.push(A.before);
+            E.redo = [];
+            fitToScreen();
+            changed(true, true);
+            continue;
+          }
+          render(true);
+        }
+      }
+      if (!done) throw new Error("the connection closed before it finished.");
+    } catch (err) {
+      fail(String(err.message || err));
+    }
+  }
+
+  Object.assign(EDIT_ACTIONS, {
+    assist: () => { E.assist.open = !E.assist.open; E.sel = null; render(true); if (E.assist.open) setTimeout(() => $("#assist-text")?.focus(), 0); },
+    "assist-close": () => { E.assist.open = false; render(true); },
+    "assist-mode": (el) => { E.assist.mode = el.dataset.mode; E.assist.result = null; render(true); },
+    "assist-example": (el) => { E.assist.text = el.dataset.text; render(true); },
+    "assist-run": runAssist,
+  });
 
   window.addEventListener("resize", () => { if ($("#plan-editor") && E.view) render(); });
 
