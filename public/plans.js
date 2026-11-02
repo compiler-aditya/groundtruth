@@ -170,6 +170,16 @@ window.GTPlans = (() => {
     return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
   }
   const footprint = (it) => (it.rot % 180 ? [it.h, it.w] : [it.w, it.h]);
+  // furniture follows its room: a piece against a wall moves with that wall, the rest keep their relative place
+  const itemsIn = (plan, r) => plan.items.filter((it) => it.cx >= r.x && it.cx <= r.x + r.w && it.cy >= r.y && it.cy <= r.y + r.h).map((it) => ({ it, cx: it.cx, cy: it.cy }));
+  function carryItems(held, o, r) {
+    const follow = (c, half, lo, hi, nlo, nhi) => (c - half - lo < 0.15 ? nlo + c - lo : hi - c - half < 0.15 ? nhi - (hi - c) : nlo + ((c - lo) * (nhi - nlo)) / (hi - lo));
+    for (const { it, cx, cy } of held) {
+      const [fw, fd] = footprint(it);
+      it.cx = r2(clamp(follow(cx, fw / 2, o.x, o.x + o.w, r.x, r.x + r.w), r.x + fw / 2, r.x + r.w - fw / 2));
+      it.cy = r2(clamp(follow(cy, fd / 2, o.y, o.y + o.h, r.y, r.y + r.h), r.y + fd / 2, r.y + r.h - fd / 2));
+    }
+  }
   function fitView(plan, W, H, pad = 50) {
     const b = bounds(plan);
     const s = clamp(Math.min((W - 2 * pad) / Math.max(b.w, 1), (H - 2 * pad) / Math.max(b.h, 1)), 8, 400);
@@ -745,14 +755,14 @@ window.GTPlans = (() => {
     if (target?.dataset.handle) {
       const r = find("room", target.dataset.id);
       const ops = Object.fromEntries(E.plan.openings.filter((o) => o.room === r.id).map((o) => [o.id, o.at]));
-      E.drag = { mode: "resize", handle: target.dataset.handle, id: r.id, start: p, orig: { ...r }, ops, before: snapshot() };
+      E.drag = { mode: "resize", handle: target.dataset.handle, id: r.id, start: p, orig: { ...r }, ops, held: itemsIn(E.plan, r), before: snapshot() };
       return;
     }
     if (target?.dataset.kind) {
       const { kind, id } = target.dataset;
       E.sel = { kind, id };
       E.tab = "props";
-      E.drag = { mode: "move", kind, id, start: p, orig: { ...find(kind, id) }, before: snapshot() };
+      E.drag = { mode: "move", kind, id, start: p, orig: { ...find(kind, id) }, held: kind === "room" ? itemsIn(E.plan, find(kind, id)) : [], before: snapshot() };
       render(true);
       return;
     }
@@ -784,6 +794,7 @@ window.GTPlans = (() => {
       const r = find("room", d.id), o = d.orig;
       const x = snapSpan(o.x + dx, o.w, roomTargets("x", r.id), free), y = snapSpan(o.y + dy, o.h, roomTargets("y", r.id), free);
       r.x = x.v; r.y = y.v;
+      carryItems(d.held, o, r);
       if (x.guide !== undefined) E.guides.push({ o: "v", c: x.guide });
       if (y.guide !== undefined) E.guides.push({ o: "h", c: y.guide });
     } else if (d.mode === "move" && d.kind === "opening") {
@@ -807,6 +818,7 @@ window.GTPlans = (() => {
       if (h.includes("n")) top = Math.min(take(snapEdge(o.y + dy, yt, free), "h"), bottom - MIN);
       if (h.includes("s")) bottom = Math.max(take(snapEdge(o.y + o.h + dy, yt, free), "h"), top + MIN);
       Object.assign(r, { x: r2(left), y: r2(top), w: r2(right - left), h: r2(bottom - top) });
+      carryItems(d.held, o, r);
       // keep doors and windows where they were in the world when the near edge moves
       for (const op of E.plan.openings) if (op.room === r.id && op.id in d.ops) {
         op.at = r2(d.ops[op.id] + (op.side === "n" || op.side === "s" ? o.x - r.x : o.y - r.y));
@@ -890,7 +902,9 @@ window.GTPlans = (() => {
     const s = selected();
     if (!s || E.sel.kind === "opening") return;
     const before = snapshot();
+    const held = E.sel.kind === "room" ? itemsIn(E.plan, s) : [], o = { ...s };
     if (E.sel.kind === "room" || E.sel.kind === "note") { s.x = r2(s.x + dx); s.y = r2(s.y + dy); } else { s.cx = r2(s.cx + dx); s.cy = r2(s.cy + dy); }
+    carryItems(held, o, s);
     commit(before);
   }
 
@@ -1254,7 +1268,9 @@ window.GTPlans = (() => {
       if (!isFinite(v)) return;
       if (prop === "w" || prop === "h") v = Math.max(E.sel.kind === "room" ? MIN : 0.2, v);
       if (prop === "width" && E.sel.kind === "opening") v = clamp(v, 0.4, sideLength(roomOf(E.plan, s.room), s.side));
+      const held = E.sel.kind === "room" ? itemsIn(E.plan, s) : [], o = { ...s };
       s[prop] = r2(v);
+      carryItems(held, o, s);
       if (final) el.value = s[prop];
     } else if (prop === "type" && E.sel.kind === "room") {
       const old = (ROOM_TYPES[s.type] || ROOM_TYPES.other)[0];

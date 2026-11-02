@@ -100,6 +100,15 @@ for room in f.plan["rooms"]:
         assert not any(overlap(box, z) for z in keep_clear(f.plan, room)), (room["name"], box)
 assert "no free floor in Bath" in f.call("add_furniture", {"room": "Bath", "type": "car"})["error"]
 assert "type must be one of" in f.call("add_furniture", {"room": "Bath", "type": "piano"})["error"]
+# resizing a room carries the furniture on the moved wall; pieces too big for the new room are removed
+desk = next(it for it in f.plan["items"] if it["type"] == "desk")
+x_before, on_west = desk["cx"], {it["id"]: it["cx"] for it in f.plan["items"] if item_box(it)[0] < 0.2 and it["cy"] < 4.5}
+ok(f.call("update_room", {"room": "Living", "width": 6}))
+assert desk["cx"] == round(x_before + 1, 2) and on_west, (x_before, desk, on_west)
+assert all(it["cx"] == on_west[it["id"]] for it in f.plan["items"] if it["id"] in on_west), f.plan["items"]
+out = ok(f.call("update_room", {"room": "Bedroom", "width": 1.2}))
+assert "bed_double" in out["removed_furniture_that_no_longer_fits"], out
+ok(f.call("update_room", {"room": "Bedroom", "width": 3.6}))
 assert f.call("remove_furniture", {"room": "Bath", "type": "toilet"})["removed"] == 1
 assert "toilet" not in {it["type"] for it in f.plan["items"]} and check(f.plan)["errors"] == []
 print("floorplan: all checks passed")

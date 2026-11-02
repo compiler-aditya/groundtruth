@@ -272,6 +272,31 @@ class _Furnishing:
             return False
         return not any(it["id"] != ignore and _hits(box, item_box(it)) for it in self.plan["items"])
 
+    def _carry_items(self, old: dict, new: dict) -> list[str]:
+        """Furniture follows its room when it moves or is resized: a piece against a wall moves with that wall, the
+        rest keep their relative place. Pieces bigger than the new room are removed; their types are returned."""
+        def follow(c, half, lo, hi, nlo, nhi):
+            if c - half - lo < 0.15:
+                return nlo + c - lo
+            if hi - c - half < 0.15:
+                return nhi - (hi - c)
+            return nlo + (c - lo) * (nhi - nlo) / (hi - lo)
+        gone = []
+        for it in self.plan["items"]:
+            if not (old["x"] <= it["cx"] <= old["x"] + old["w"] and old["y"] <= it["cy"] <= old["y"] + old["h"]):
+                continue
+            x0, y0, x1, y1 = item_box(it)
+            hw, hh = (x1 - x0) / 2, (y1 - y0) / 2
+            if 2 * hw > new["w"] + EPS or 2 * hh > new["h"] + EPS:
+                gone.append(it)
+                continue
+            cx = follow(it["cx"], hw, old["x"], old["x"] + old["w"], new["x"], new["x"] + new["w"])
+            cy = follow(it["cy"], hh, old["y"], old["y"] + old["h"], new["y"], new["y"] + new["h"])
+            it["cx"] = r2(min(max(cx, new["x"] + hw), new["x"] + new["w"] - hw))
+            it["cy"] = r2(min(max(cy, new["y"] + hh), new["y"] + new["h"] - hh))
+        self.plan["items"] = [it for it in self.plan["items"] if it not in gone]
+        return [it["type"] for it in gone]
+
     def _place_item(self, room: dict, kind: str, wall: str | None) -> dict | None:
         w, h = ITEMS[kind]
         if kind in FREESTANDING:  # in the middle of the free floor, nearest the centre
@@ -419,16 +444,13 @@ class PlanBuilder(_Furnishing):
                 raise ValueError(f"type must be one of {', '.join(ROOM_TYPES)}")
             new["type"] = type
         self._fits(new)
-        dx, dy = new["x"] - r["x"], new["y"] - r["y"]
-        if dx or dy:  # furniture in the room moves with it
-            for it in self.plan["items"]:
-                if r["x"] <= it["cx"] <= r["x"] + r["w"] and r["y"] <= it["cy"] <= r["y"] + r["h"]:
-                    it["cx"], it["cy"] = r2(it["cx"] + dx), r2(it["cy"] + dy)
+        gone = self._carry_items(r, new)
         r.update(new)
         dropped = [op["id"] for op in self.plan["openings"] if op["room"] == r["id"]
                    and op["width"] > side_edge(r, op["side"])[4] - side_edge(r, op["side"])[3] + EPS]
         self.plan["openings"] = [op for op in self.plan["openings"] if op["id"] not in dropped]
-        return {"updated": self._report(r), **({"removed_openings_that_no_longer_fit": dropped} if dropped else {})}
+        return {"updated": self._report(r), **({"removed_openings_that_no_longer_fit": dropped} if dropped else {}),
+                **({"removed_furniture_that_no_longer_fits": gone} if gone else {})}
 
     def tool_swap_rooms(self, room_a: str, room_b: str) -> dict:
         """Swap two rooms' names and uses (the walls, doors and windows stay); their furniture moves with them."""
