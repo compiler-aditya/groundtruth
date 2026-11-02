@@ -26,10 +26,11 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Callable
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from gt import accounts
 from gt.floorplan import clean
 from gt.live import LiveRun
 from gt.package import Package
@@ -335,6 +336,116 @@ async def plan_simulate(request: Request) -> dict:
     except (TypeError, ValueError):
         raise HTTPException(400, "latitude and north must be numbers")
     return simulate(plan, latitude, DAYS.get(settings.get("season"), DAYS["winter"]), north)
+
+
+# ---------------------------------------------------------------- accounts: sign-up, sign-in, designs per account
+
+SESSION_COOKIE = "gt_session"
+
+
+def _same_site(request: Request) -> None:
+    """Changes must come from this site's own pages (the cookie is also SameSite=Lax)."""
+    origin = request.headers.get("origin")
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+    if origin and origin.split("://", 1)[-1] != host:
+        raise HTTPException(403, "Cross-site request refused.")
+
+
+def _account_call(fn, *args):
+    try:
+        return fn(*args)
+    except accounts.AccountError as err:
+        raise HTTPException(429 if "Too many" in str(err) else 400, str(err)) from None
+
+
+def _signed_in(request: Request) -> dict:
+    user = accounts.session_user(request.cookies.get(SESSION_COOKIE)) if accounts.available() else None
+    if not user:
+        raise HTTPException(401, "Sign in to save designs to your account.")
+    return user
+
+
+def _start_session(response: Response, user: dict) -> dict:
+    response.set_cookie(SESSION_COOKIE, accounts.new_session(user["id"]), max_age=accounts.SESSION_DAYS * 86400,
+                        httponly=True, secure=HOSTED, samesite="lax", path="/")
+    return {"user": user}
+
+
+async def _json(request: Request) -> dict:
+    try:
+        body = await request.json()
+    except ValueError:
+        raise HTTPException(400, "Send JSON.") from None
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Send a JSON object.")
+    return body
+
+
+@app.get("/api/auth/me")
+def auth_me(request: Request) -> dict:
+    on = accounts.available()
+    return {"accounts": on, "user": accounts.session_user(request.cookies.get(SESSION_COOKIE)) if on else None}
+
+
+@app.post("/api/auth/signup")
+async def auth_signup(request: Request, response: Response) -> dict:
+    _same_site(request)
+    body = await _json(request)
+    user = _account_call(accounts.sign_up, str(body.get("email", "")), str(body.get("password", "")), str(body.get("name", "")))
+    return _start_session(response, user)
+
+
+@app.post("/api/auth/login")
+async def auth_login(request: Request, response: Response) -> dict:
+    _same_site(request)
+    body = await _json(request)
+    client = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "?")).split(",")[0]
+    user = _account_call(accounts.sign_in, str(body.get("email", "")), str(body.get("password", "")), client)
+    return _start_session(response, user)
+
+
+@app.post("/api/auth/logout")
+def auth_logout(request: Request, response: Response) -> dict:
+    _same_site(request)
+    accounts.end_session(request.cookies.get(SESSION_COOKIE))
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return {"ok": True}
+
+
+@app.get("/api/designs")
+def designs_list(request: Request) -> dict:
+    user = _signed_in(request)
+    return {"designs": [{**d, "data": json.loads(d["data"])} for d in accounts.list_designs(user["id"])]}
+
+
+@app.put("/api/designs/{design_id}")
+async def designs_save(design_id: str, request: Request) -> dict:
+    _same_site(request)
+    user = _signed_in(request)
+    body = await _json(request)
+    data = body.get("data")
+    if not isinstance(data, dict) or not isinstance(data.get("rooms"), list):
+        raise HTTPException(400, "data must be a plan.")
+    try:
+        updated = float(body.get("updated") or time.time() * 1000)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "updated must be a number") from None
+    _account_call(accounts.save_design, user["id"], design_id, str(body.get("name") or data.get("name") or ""), json.dumps(data), updated)
+    return {"ok": True}
+
+
+@app.delete("/api/designs/{design_id}")
+def designs_delete(design_id: str, request: Request) -> dict:
+    _same_site(request)
+    user = _signed_in(request)
+    accounts.delete_design(user["id"], design_id)
+    return {"ok": True}
+
+
+@app.get("/studio")
+def studio_page():
+    page = ROOT / "public" / "studio.html"
+    return FileResponse(page) if page.exists() else RedirectResponse("/studio.html")
 
 
 @app.get("/")
