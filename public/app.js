@@ -70,6 +70,11 @@ const ACTIONS = {
   "rm-file": (el) => { S.files.splice(+el.dataset.i, 1); renderFiles(); },
   "pick-files": () => $("#file-in")?.click(),
   "go-upload": submitUpload,
+  theme: () => {
+    const dark = document.documentElement.dataset.theme !== "dark";
+    if (dark) document.documentElement.dataset.theme = "dark"; else delete document.documentElement.dataset.theme;
+    try { localStorage.setItem("gt.theme", dark ? "dark" : "light"); } catch {}
+  },
 };
 document.addEventListener("click", (e) => {
   const zoom = e.target.closest("[data-zoom]");
