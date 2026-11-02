@@ -3,30 +3,37 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GroundTruth: site vs. design, with evidence</title>
-  <meta name="description" content="An agent that checks a construction site against its design package, with evidence, using Meta's models.">
+  <title>GroundTruth: from floor plan to verified site</title>
+  <meta name="description" content="Design a building with Muse Wonder, simulate how it lives, then check the built site against it with Meta's models, every finding backed by evidence.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/plans.css">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f5f4a'/%3E%3Cpath d='M9 17l5 5 9-11' stroke='white' stroke-width='3.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23ff4c00'/%3E%3Cpath d='M9 17l5 5 9-11' stroke='white' stroke-width='3.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 </head>
 <body>
+  <div class="announce" id="announce"><a href="#/plans">New: simulate how a plan lives (sun, routes and space), then let Muse Wonder improve it. <b>Try it →</b></a></div>
   <header class="top">
     <div class="wrap">
       <a class="brand" href="#/"><span class="mark">✓</span><span class="brand-name">GroundTruth</span></a>
       <nav>
-        <a href="#/" data-nav="home">Demo</a>
+        <a href="#/" data-nav="home">Site check</a>
         <a href="#/plans" data-nav="plans">Design a plan</a>
-        <a href="#/how" data-nav="how" class="hide-sm">How it works</a>
         <a href="#/upload" data-nav="upload">Try your own</a>
-        <a href="https://github.com/compiler-aditya/groundtruth" target="_blank" rel="noopener" class="hide-sm">GitHub</a>
+        <a href="#/how" data-nav="how" class="hide-sm">How it works</a>
       </nav>
+      <div class="right"><a class="btn small" href="https://github.com/compiler-aditya/groundtruth" target="_blank" rel="noopener">GitHub ↗</a></div>
     </div>
   </header>
   <main id="app" class="wrap"></main>
-  <footer class="foot wrap">
-    Built during the Meta Global AI Developer Hackathon with Muse Wonder, Muse Spark 1.3, Muse Spark Open and SAM 3.1.
-    Verdicts are computed in code from the models' measurements; drafts are for an engineer to review.
-    Sample media belongs to its authors: <a href="https://github.com/compiler-aditya/groundtruth/blob/main/samples/real/SOURCES.md" target="_blank" rel="noopener">credits and licences</a>.
+  <footer class="foot">
+    <div class="fl" style="max-width:1080px;margin:0 auto">
+      <span>Built during the Meta Global AI Developer Hackathon with Muse Wonder, Muse Spark 1.3, Muse Spark Open and SAM 3.1.
+        Verdicts are computed in code from the models' measurements; drafts are for an engineer to review.
+        Sample media belongs to its authors: <a href="https://github.com/compiler-aditya/groundtruth/blob/main/samples/real/SOURCES.md" target="_blank" rel="noopener">credits and licences</a>.</span>
+      <span class="mono">[ GROUNDTRUTH · 2026 ]</span>
+    </div>
   </footer>
   <div id="lightbox" hidden><div><img alt=""><p></p></div></div>
   <script src="/plans.js"></script>
