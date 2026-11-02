@@ -10,7 +10,7 @@ window.GTPlans = (() => {
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const fmtM = (n) => `${n.toFixed(2)} m`;
   const fmtA = (n) => `${n.toFixed(1)} m²`;
-  const INK = "#22211d", PAPER = "#fbfaf6", ACCENT = "#1f5f4a";
+  const INK = "#262626", PAPER = "#fcfcfb", ACCENT = "#ff4c00";
 
   /* ---------------- model ---------------- */
   const ROOM_TYPES = {
@@ -442,6 +442,7 @@ window.GTPlans = (() => {
     Object.assign(E, { plan, sel: null, tool: "select", undo: [], redo: [], drag: null, hover: null, ghost: null, guides: [], view: null, flash: new Set(),
       assist: { open: E.openAssist, running: false, mode: plan.rooms.length ? "edit" : "new", text: "", feed: [], result: null, error: null } });
     E.openAssist = false;
+    if (E.prefill) { E.assist.text = E.prefill; E.prefill = ""; }
     stopSim();
     E.mode = "design";
     E.sim = { result: null, stale: true, loading: false, error: null, t: 0, season: "winter", tracks: [], walking: false, sunTimer: 0, walkFrame: 0 };
@@ -477,7 +478,11 @@ window.GTPlans = (() => {
     svg.addEventListener("pointerup", onPointerUp);
     svg.addEventListener("pointercancel", onPointerUp);
     svg.addEventListener("pointerleave", () => { if (E.hover) { E.hover = null; render(); } });
-    requestAnimationFrame(() => { fitToScreen(); render(true); });
+    requestAnimationFrame(() => {
+      fitToScreen();
+      render(true);
+      if (E.autorun) { E.autorun = false; if (AI.ready && E.assist.text) runAssist(); }
+    });
   }
 
   function canvasSize() {
@@ -1438,5 +1443,11 @@ window.GTPlans = (() => {
     else renderList(app);
   }
 
-  return { route, drawPlan, fitView, walls, TEMPLATES };
+  // From the home page: a new plan with the design assistant open and running on the description.
+  function designFrom(text) {
+    Object.assign(E, { openAssist: true, prefill: text, autorun: true });
+    newPlan("blank");
+  }
+
+  return { route, drawPlan, fitView, walls, TEMPLATES, designFrom };
 })();
