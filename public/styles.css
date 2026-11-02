@@ -255,7 +255,10 @@ pre.notes { white-space: pre-wrap; margin: 0; padding: 14px 16px; font-family: v
 .ustep:first-child { border-top: 0; }
 .ustep .n { width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid var(--accent); color: var(--accent); display: grid; place-items: center; font-family: var(--display); font-weight: 600; font-size: 15px; }
 .ustep h2 { font-size: 22px; margin: 4px 0 4px; letter-spacing: -.02em; }
-.drop { border: 1.5px dashed var(--line-2); border-radius: 6px; padding: 30px; text-align: center; color: var(--muted); cursor: pointer; background: var(--bg); transition: border-color .15s, background .15s; }
+.drop { border: 1.5px dashed var(--line-2); border-radius: 6px; padding: 30px; text-align: center; color: var(--muted); cursor: pointer; background: var(--bg); transition: border-color .15s, background .15s;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.drop svg { color: var(--accent); }
+.page-head .counts { margin-top: 8px; }
 .drop.over, .drop:hover { border-color: var(--accent); color: var(--ink); background: var(--accent-soft); }
 .files { margin-top: 12px; display: grid; gap: 8px; }
 .file-row { display: grid; grid-template-columns: 64px minmax(0, 1.2fr) 170px minmax(0, 1fr) 32px; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 6px; padding: 6px; background: var(--panel); }

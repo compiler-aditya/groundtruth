@@ -135,6 +135,7 @@ const ICON = {
   photo: ico(`<rect x="2.5" y="4" width="15" height="12" rx="1.5"/><circle cx="7" cy="8.5" r="1.5"/><path d="M17.5 13l-4.5-4-6 6"/>`),
   person: ico(`<circle cx="10" cy="6.5" r="3"/><path d="M4 17a6 6 0 0112 0"/>`),
   doc: ico(`<path d="M5 2.5h7l3 3v12H5z"/><path d="M8 9h4M8 12h4M8 15h2"/>`),
+  clock: ico(`<circle cx="10" cy="10.5" r="6.5"/><path d="M10 7v3.5l2.5 1.5M8 2.5h4"/>`),
 };
 const modules = (x0, y0, rows, cols, w, h, gap) => Array.from({ length: rows * cols }, (_, i) =>
   `<rect x="${x0 + (i % cols) * (w + 1)}" y="${y0 + Math.floor(i / cols) * (h + gap)}" width="${w}" height="${h}"/>`).join("");
@@ -341,32 +342,26 @@ async function renderUpload() {
   const h = S.health || {}, max = h.max_files || 8;
   if (!S.sched) S.sched = [{}];
   app.innerHTML = `
-  <div class="page-head"><div class="eyebrow">Try your own</div><h1>Check your own photos against your design</h1>
-    <p class="muted" style="max-width:760px;margin:0">Upload equipment nameplates, drone stills or drawing sheets and say what the design expects.
-    The agent matches each photo to the right design row from what it shows, checks it, and reports what doesn't match.
-    A run takes about a minute.</p></div>
+  <div class="page-head"><div class="eyebrow">Try your own</div><h1>Check your photos against your design</h1>
+    <div class="counts">${[["plate", "Nameplates"], ["drone", "Drone stills"], ["sheet", "Drawings"]].map(([i, t]) => `<span>${ICON[i]}${t}</span>`).join("")}<span>${ICON.clock}<b>~1</b> min</span></div></div>
   <div class="steps">
     <div class="ustep"><div class="n">1</div><div>
       <h2>Add photos</h2>
-      <p class="muted small" style="margin:0 0 10px">Nameplate photos, drone stills taken from straight above, or drawing sheets as PDF. Up to ${max} files;
-        photos are shrunk in your browser before upload.${h.video_uploads ? "" : " Video can't be uploaded on this deployment."}</p>
-      <div class="drop" id="drop" role="button" tabindex="0" data-act="pick-files"><b>Drop files here</b> or click to choose
+      <div class="drop" id="drop" role="button" tabindex="0" data-act="pick-files">${ico(`<path d="M10 13V3.5M6 7.5l4-4 4 4"/><path d="M3.5 12.5v4h13v-4"/>`, 28)}<b>Drop photos or PDFs</b><span class="tiny">up to ${max}</span>
         <input type="file" id="file-in" multiple accept="image/*,.pdf,.tif,.tiff${h.video_uploads ? ",video/*" : ""}" hidden></div>
       <div class="files" id="files"></div>
-      <p class="small" style="margin:10px 0 0">No photos to hand? <button class="link" data-act="example">Use three example nameplates</button>
-        <span class="muted">(with their schedule rows, in a different order, so the agent has to match them)</span></p>
+      <p class="small" style="margin:10px 0 0"><button class="link" data-act="example">Or try three example nameplates →</button></p>
     </div></div>
     <div class="ustep"><div class="n">2</div><div>
-      <h2>Say what the design expects</h2>
-      <p class="muted small" style="margin:0 0 10px">One row per piece of equipment. Leave a cell empty if the design doesn't specify it.
-        The photos don't need to be labelled: the agent works out which plate belongs to which row.</p>
+      <h2>What the design expects</h2>
+      <p class="muted small" style="margin:0 0 10px">One row per item. The agent matches photos to rows.</p>
       <div class="table-wrap"><table class="sched"><thead><tr>${SCHED_HEAD.map((x) => `<th>${x}</th>`).join("")}<th></th></tr></thead><tbody id="sched-body"></tbody></table></div>
       <div style="display:flex;gap:8px;margin-top:8px"><button class="btn small" data-act="add-row">+ Add a row</button></div>
       <details class="more"><summary>Paste the schedule as CSV instead</summary>
         <textarea id="sched-csv" placeholder="${esc(SCHED_COLS.join(","))}&#10;${esc(SCHED_PH.join(","))}"></textarea>
         <button class="btn small" data-act="load-csv" style="margin-top:6px">Load into the table</button> <span class="small" id="csv-msg"></span>
       </details>
-      <details class="more"><summary>More design documents (optional): quantities, drawing register, site notes</summary>
+      <details class="more"><summary>More documents (optional)</summary>
         <div class="grid2">
           <div><label class="field" for="u-quantities">Quantities (CSV)</label>
             <textarea id="u-quantities" data-u="quantities" placeholder="item_id,area,description,count_what,unit,design_qty,method,tolerance_pct&#10;Q-1,Block A,PV modules in Block A,solar panel,module,192,objects,0">${esc(S.u.quantities)}</textarea>
@@ -383,7 +378,7 @@ async function renderUpload() {
       <h2>Run the check</h2>
       <div class="grid2" style="max-width:640px">
         <div><label class="field" for="u-name">Project name</label><input id="u-name" data-u="name" value="${esc(S.u.name)}"></div>
-        ${h.upload_code_required ? `<div><label class="field" for="u-code">Access code</label><input id="u-code" data-u="code" value="${esc(S.u.code)}" placeholder="given in the hackathon submission" autocomplete="off"></div>` : ""}
+        ${h.upload_code_required ? `<div><label class="field" for="u-code">Access code</label><input id="u-code" data-u="code" value="${esc(S.u.code)}" placeholder="from the submission" autocomplete="off"></div>` : ""}
       </div>
       <p class="small" id="u-msg" role="alert" style="color:var(--ncr);min-height:1.2em;margin:10px 0"></p>
       <button class="btn primary big" data-act="go-upload" id="go-upload" ${liveReady() ? "" : "disabled"}>▶ Run the agent on my files</button>
