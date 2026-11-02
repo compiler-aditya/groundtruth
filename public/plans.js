@@ -909,7 +909,7 @@ window.GTPlans = (() => {
     const { W, H } = canvasSize();
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     svg.setAttribute("class", `tool-${E.tool}${E.drag?.mode === "pan" ? " panning" : ""}`);
-    const sim = E.mode === "simulate";
+    const sim = E.mode === "simulate" && !E.assist.running;
     svg.innerHTML = `<rect width="${W}" height="${H}" fill="${PAPER}"/>` + drawPlan(E.plan, E.view, { width: W, height: H, grid: true, overlay: sim ? simOverlay : overlay })
       + scaleBar(W, H) + (sim ? simHud(W) : "");
     if (sim) placeWalkers();
@@ -1233,10 +1233,38 @@ window.GTPlans = (() => {
       <table class="pe-table">${people}</table>
       ${notes(r.movement.notes)}
       <h4>♿ Space</h4>${notes(r.space.notes)}
-      <div id="sim-ai"></div>`;
+      ${simAi()}`;
+  }
+
+  const SIM_GOALS = ["More sun in the bedrooms and the living room", "Keep guests out of the bedrooms", "Shorter walks to the kitchen and bathroom",
+    "Make it easier for a wheelchair user"];
+  function simAi() {
+    const A = E.assist, S = E.sim, c = S.compare;
+    if (A.running) return `<h4>✨ Improving with AI</h4><p class="small muted"><span class="spin"></span> Muse Wonder is changing the plan and re-running the simulation…</p>
+      <div class="assist-feed">${feedHtml(A)}</div>`;
+    const row = (k, label) => {
+      const b = c.before[k], a = c.after[k];
+      if (b == null && a == null) return "";
+      const d = (a ?? 0) - (b ?? 0);
+      return `<tr><td>${label}</td><td class="num">${b ?? "–"}</td><td class="num"><b>${a ?? "–"}</b></td><td class="num ${d > 0 ? "up" : d < 0 ? "down" : ""}">${d > 0 ? "+" : ""}${d || "±0"}</td></tr>`;
+    };
+    const compare = c ? `<div class="assist-done ${c.finished ? "" : "warn"}"><b>${!c.finished ? "Stopped before it finished" : c.changed ? "✓ Improved, measured by the simulation" : "No change kept"}</b>
+        <table class="pe-table sim-compare"><tr><td></td><td class="num muted small">Before</td><td class="num muted small">After</td><td></td></tr>
+        ${row("overall", "Overall")}${row("daylight", "Daylight")}${row("movement", "Movement")}${row("space", "Space")}</table>
+        ${c.summary ? `<p>${esc(c.summary)}</p>` : ""}<span class="tiny muted">${c.seconds} s · $${(c.cost || 0).toFixed(2)}</span>
+        ${c.changed ? `<div class="pe-actions" style="margin-top:8px"><button class="btn small" data-pact="sim-keep">Keep it</button><button class="btn small" data-pact="sim-undo">Undo</button></div>` : ""}</div>` : "";
+    return `<h4>✨ Improve with AI</h4>
+      <p class="tiny muted" style="margin:0 0 8px">Muse Wonder changes the plan, re-runs this simulation after each change and undoes what scores worse.
+        The code won't let it finish if the overall score went down.</p>${compare}
+      <textarea id="sim-goal" rows="2" maxlength="800" placeholder="e.g. ${esc(SIM_GOALS[0])}">${esc(S.goal || "")}</textarea>
+      <div class="pe-chips">${SIM_GOALS.map((t) => `<button data-pact="sim-goal" data-text="${esc(t)}" title="${esc(t)}">${esc(short(t))}</button>`).join("")}</div>
+      <button class="btn primary" style="width:100%" data-pact="sim-improve" ${AI.ready ? "" : "disabled"}>Improve the plan</button>
+      ${A.error ? `<p class="assist-err">${esc(A.error)}</p>` : ""}`;
   }
 
   function bindSim(side) {
+    const goal = $("#sim-goal", side);
+    if (goal) goal.oninput = () => { E.sim.goal = goal.value; };
     for (const el of $$("[data-sim]", side)) {
       const apply = () => {
         const k = el.dataset.sim, site = E.plan.site;
@@ -1254,6 +1282,14 @@ window.GTPlans = (() => {
 
   Object.assign(EDIT_ACTIONS, {
     mode: (el) => setMode(el.dataset.mode),
+    "sim-goal": (el) => { E.sim.goal = el.dataset.text; render(true); },
+    "sim-improve": () => {
+      const site = E.plan.site;
+      E.assist.error = null;
+      runAssist({ text: E.sim.goal || "", mode: "improve", settings: { latitude: site.latitude, north: site.north, season: E.sim.season } });
+    },
+    "sim-keep": () => { E.sim.compare = null; render(true); },
+    "sim-undo": () => { undo(); E.sim.compare = null; runSim(); },
     "sim-rerun": runSim,
     "sim-sun-play": () => {
       const S = E.sim;
@@ -1282,11 +1318,13 @@ window.GTPlans = (() => {
   const EX_EDIT = ["Add a home office of about 9 m² next to the living room", "Give the main bedroom its own bathroom", "Add a single garage on the west side"];
   const short = (t) => t.split(" ").slice(0, 5).join(" ") + "…";
 
+  const feedHtml = (A) => A.feed.map((f) => f.kind === "note" ? `<div class="msg">${esc(f.text)}</div>`
+    : f.kind === "turn" ? `<div class="turn">${esc(f.text)}</div>`
+    : `<div class="ev ${f.kind}"><span>${f.kind === "ok" ? "✓" : "✗"}</span><span>${esc(f.text)}</span></div>`).join("");
+
   function assistPanel() {
     const A = E.assist, hasRooms = E.plan.rooms.length > 0, mode = hasRooms ? A.mode : "new", examples = mode === "edit" ? EX_EDIT : EX_NEW;
-    const feed = A.feed.map((f) => f.kind === "note" ? `<div class="msg">${esc(f.text)}</div>`
-      : f.kind === "turn" ? `<div class="turn">${esc(f.text)}</div>`
-      : `<div class="ev ${f.kind}"><span>${f.kind === "ok" ? "✓" : "✗"}</span><span>${esc(f.text)}</span></div>`).join("");
+    const feed = feedHtml(A);
     const r = A.result;
     const resultBox = r ? `<div class="assist-done ${r.finished ? "" : "warn"}"><b>${r.finished ? "✓ Done" : "Stopped before the plan passed its checks"}</b>
         <span class="small">${r.check.rooms} rooms · ${fmtA(r.check.total_area_m2)} · ${r.turns} turns · ${r.seconds} s · $${(r.cost_usd || 0).toFixed(2)}</span>
@@ -1313,14 +1351,16 @@ window.GTPlans = (() => {
     const before = new Set(E.plan.rooms.map((r) => r.id));
     E.plan.rooms = p.rooms;
     E.plan.openings = p.openings;
+    if (Array.isArray(p.items) && E.assist.runMode !== "new") E.plan.items = p.items;
     E.flash = new Set(p.rooms.filter((r) => !before.has(r.id)).map((r) => r.id));
     if (E.assist.runMode === "new" || p.rooms.some((r) => !before.has(r.id))) fitToScreen();
   }
 
-  async function runAssist() {
-    const A = E.assist, text = A.text.trim(), planId = E.plan.id;
+  async function runAssist(opts = {}) {
+    const A = E.assist, text = (opts.text ?? A.text).trim(), planId = E.plan.id;
     if (text.length < 3) { A.error = "Describe what you want first, or pick an example."; render(true); return; }
-    const mode = E.plan.rooms.length ? A.mode : "new";
+    const mode = opts.mode || (E.plan.rooms.length ? A.mode : "new");
+    if (mode === "improve") { stopSim(); E.sim.compare = null; }
     Object.assign(A, { running: true, feed: [], result: null, error: null, before: snapshot(), runMode: mode });
     if (mode === "new") { E.plan.rooms = []; E.plan.openings = []; E.plan.items = []; }
     E.sel = null;
@@ -1332,10 +1372,12 @@ window.GTPlans = (() => {
       Object.assign(A, { running: false, error: `The assistant stopped: ${message} Your plan is back as it was.` });
       E.flash = new Set();
       restore(A.before);
+      if (mode === "improve") runSim();
     };
     try {
       const res = await fetch("/api/plan/assist", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request: text, mode, plan: mode === "edit" ? { rooms: E.plan.rooms, openings: E.plan.openings, items: [] } : null }) });
+        body: JSON.stringify({ request: text, mode, settings: opts.settings,
+          plan: mode === "new" ? null : { rooms: E.plan.rooms, openings: E.plan.openings, items: E.plan.items } }) });
       if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(body.detail || `the server answered ${res.status}.`); }
       const reader = res.body.getReader(), decoder = new TextDecoder();
       let buf = "", done = false;
@@ -1359,11 +1401,16 @@ window.GTPlans = (() => {
             E.flash = new Set();
             if (mode === "new" && ev.name) { E.plan.name = ev.name; const n = $("#pe-name"); if (n) n.value = ev.name; }
             if (mode === "new" && KINDS[ev.kind]) { E.plan.kind = ev.kind; const k = $("#pe-kind"); if (k) k.value = ev.kind; }
-            Object.assign(A, { running: false, result: ev, text: "", mode: "edit" });
+            Object.assign(A, { running: false, result: mode === "improve" ? null : ev, text: mode === "improve" ? A.text : "", mode: "edit" });
             E.undo.push(A.before);
             E.redo = [];
             fitToScreen();
             changed(true, true);
+            if (mode === "improve") {
+              E.sim.compare = { before: ev.before, after: ev.after, summary: ev.summary, finished: ev.finished, seconds: ev.seconds, cost: ev.cost_usd,
+                changed: JSON.stringify(JSON.parse(A.before)) !== JSON.stringify({ rooms: E.plan.rooms, openings: E.plan.openings, items: E.plan.items }) };
+              runSim();
+            }
             continue;
           }
           render(true);

@@ -130,3 +130,6 @@ body.studio .foot { display: none; }
 .sim-notes li { margin: 3px 0; }
 .pe-table .bad { color: var(--ncr); font-weight: 600; }
 @media (max-width: 900px) { .pe-mode button { padding: 6px 9px; } }
+.sim-compare td.up { color: var(--pass); font-weight: 700; }
+.sim-compare td.down { color: var(--ncr); font-weight: 700; }
+#sim-goal { font-family: inherit; font-size: 13.5px; min-height: 56px; }
