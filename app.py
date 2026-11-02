@@ -34,6 +34,7 @@ from gt.floorplan import clean
 from gt.live import LiveRun
 from gt.package import Package
 from gt.planner import run_planner
+from gt.simulate import DAYS, simulate
 
 ROOT = Path(__file__).resolve().parent
 HOSTED = bool(os.environ.get("VERCEL"))
@@ -260,6 +261,26 @@ async def plan_assist(request: Request) -> StreamingResponse:
     plan = clean(body.get("plan")) if edit else None
     _admit(request)
     return _job(lambda emit: run_planner(text, plan, on_event=emit), {"mode": "edit" if edit else "new", "request": text})
+
+
+@app.post("/api/plan/simulate")
+async def plan_simulate(request: Request) -> dict:
+    """The plan simulation: sun, movement, space and their scores. Pure geometry, no model calls."""
+    body = await request.json()
+    plan = clean(body.get("plan"))
+    if not plan["rooms"]:
+        raise HTTPException(400, "The plan has no rooms to simulate.")
+    xs = [r["x"] for r in plan["rooms"]] + [r["x"] + r["w"] for r in plan["rooms"]]
+    ys = [r["y"] for r in plan["rooms"]] + [r["y"] + r["h"] for r in plan["rooms"]]
+    if (max(xs) - min(xs)) * (max(ys) - min(ys)) > 2500:
+        raise HTTPException(400, "The plan is too large to simulate (over 2,500 m² of footprint).")
+    settings = body.get("settings") or {}
+    try:
+        latitude = min(66.0, max(-66.0, float(settings.get("latitude", 28.6))))
+        north = float(settings.get("north", 0)) % 360
+    except (TypeError, ValueError):
+        raise HTTPException(400, "latitude and north must be numbers")
+    return simulate(plan, latitude, DAYS.get(settings.get("season"), DAYS["winter"]), north)
 
 
 @app.get("/")

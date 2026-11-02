@@ -211,8 +211,13 @@ def clean(plan: dict | None) -> dict:
         except (KeyError, TypeError, ValueError):
             continue
     for it in (plan.get("items") or [])[:300]:
-        if isinstance(it, dict):
-            items.append(it)
+        try:
+            item = {"id": str(it["id"])[:20], "type": str(it["type"])[:30], "cx": r2(float(it["cx"])), "cy": r2(float(it["cy"])),
+                    "w": r2(float(it["w"])), "h": r2(float(it["h"])), "rot": int(it.get("rot") or 0) % 360}
+        except (KeyError, TypeError, ValueError):
+            continue
+        if 0.1 <= item["w"] <= 10 and 0.1 <= item["h"] <= 10:
+            items.append(item)
     return {"rooms": rooms, "openings": openings, "items": items}
 
 
@@ -300,6 +305,11 @@ class PlanBuilder:
                 raise ValueError(f"type must be one of {', '.join(ROOM_TYPES)}")
             new["type"] = type
         self._fits(new)
+        dx, dy = new["x"] - r["x"], new["y"] - r["y"]
+        if dx or dy:  # furniture in the room moves with it
+            for it in self.plan["items"]:
+                if r["x"] <= it["cx"] <= r["x"] + r["w"] and r["y"] <= it["cy"] <= r["y"] + r["h"]:
+                    it["cx"], it["cy"] = r2(it["cx"] + dx), r2(it["cy"] + dy)
         r.update(new)
         dropped = [op["id"] for op in self.plan["openings"] if op["room"] == r["id"]
                    and op["width"] > side_edge(r, op["side"])[4] - side_edge(r, op["side"])[3] + EPS]
@@ -310,6 +320,8 @@ class PlanBuilder:
         r = self._room(room)
         self.plan["rooms"].remove(r)
         self.plan["openings"] = [op for op in self.plan["openings"] if op["room"] != r["id"]]
+        self.plan["items"] = [it for it in self.plan["items"]
+                              if not (r["x"] <= it["cx"] <= r["x"] + r["w"] and r["y"] <= it["cy"] <= r["y"] + r["h"])]
         return {"removed": r["name"]}
 
     def _place(self, room: dict, side: str, lo: float, hi: float, width: float, prefer: str = "middle") -> float | None:

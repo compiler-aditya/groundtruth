@@ -127,3 +127,26 @@ full = sim.simulate(home().plan, 51.5, sim.DAYS["summer"], north=90)
 assert set(full["scores"]) == {"daylight", "movement", "space"} and 0 <= full["overall"] <= 100
 assert sim.summary(full)["movement"]["daily_m"]["Guest"] > 0
 print("simulate (movement, space, scores): all checks passed")
+
+# --- the endpoint, and furniture moving with its room
+from fastapi.testclient import TestClient  # noqa: E402
+
+import app  # noqa: E402
+
+web = TestClient(app.app)
+plan = home().plan
+plan["items"] = [{"id": "s1", "type": "sofa", "cx": 3, "cy": 3, "w": 2, "h": 0.9, "rot": 0}, {"id": "bad", "type": "sofa"}]
+got = web.post("/api/plan/simulate", json={"plan": plan, "settings": {"latitude": 51.5, "season": "summer", "north": 45}}).json()
+assert got["sun"]["latitude"] == 51.5 and got["sun"]["day"] == sim.DAYS["summer"] and got["sun"]["north"] == 45, got["sun"]
+assert set(got["scores"]) == {"daylight", "movement", "space"} and got["movement"]["people"], got["scores"]
+assert web.post("/api/plan/simulate", json={"plan": {"rooms": []}}).status_code == 400
+huge = {"rooms": [{"id": "a", "name": "A", "type": "other", "x": 0, "y": 0, "w": 60, "h": 60}], "openings": [], "items": []}
+assert web.post("/api/plan/simulate", json={"plan": huge}).status_code == 400
+b = PlanBuilder(plan)
+assert [it["id"] for it in b.plan["items"]] == ["s1"]  # the malformed item was dropped
+b.call("update_room", {"room": "Living", "x": -1})
+moved = next(it for it in b.plan["items"] if it["id"] == "s1")
+assert moved["cx"] == 2 and moved["cy"] == 3, moved
+b.call("remove_room", {"room": "Living"})
+assert b.plan["items"] == []
+print("simulate endpoint: all checks passed")
