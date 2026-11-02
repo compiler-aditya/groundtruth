@@ -118,18 +118,60 @@ function table(rows, cols) {
 }
 
 /* ---------------- home ---------------- */
-const RULES = [
-  ["The model chooses the checks; code decides the verdict.", "Counts are compared with the design quantity and tolerance, title blocks with the register, plates field by field with the schedule."],
-  ["Findings can't be invented.", "A finding must point at a measurement that failed, and takes its facts and images from it. The agent can't finish while a failure has no finding."],
-  ["Follow-ups are built in.", "If a plate's manufacturer doesn't match the schedule row the agent picked, it has to try another row. If two models disagree on a count, a person decides."],
-  ["Drafts must stay on topic.", "A draft has to name its subject and its measured numbers, or it is written again. Twice wrong, and a plain template is used and labelled."],
+// Line icons (20×20) and small drawings, so the page shows instead of tells.
+const ico = (d, size = 20) => `<svg viewBox="0 0 20 20" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ICON = {
+  chat: ico(`<path d="M3.5 4.5h13v9h-7l-4 3v-3h-2z"/><path d="M7 8.5h6M7 11h4"/>`),
+  sketch: ico(`<path d="M4 3.5h8l4 4v9H4z"/><path d="M12 3.5v4h4"/><path d="M7 13.5l5-5 1.5 1.5-5 5H7z"/>`),
+  cube: ico(`<path d="M10 2.5l7 3.8v7.4l-7 3.8-7-3.8V6.3z"/><path d="M3 6.3l7 3.8 7-3.8M10 10.1v7.4"/>`),
+  walk: ico(`<circle cx="11" cy="3.8" r="1.6"/><path d="M8.5 8l2.5-1.5 2 2.5 2.5 1M11 6.5l-1 5 3 3v3M10 11.5l-2.5 3-2.5.5"/>`),
+  layers: ico(`<path d="M10 3l7.5 4-7.5 4-7.5-4z"/><path d="M2.5 10.5l7.5 4 7.5-4M2.5 14l7.5 4 7.5-4"/>`),
+  export: ico(`<path d="M10 3v9.5M6 9l4 4 4-4"/><path d="M3.5 13.5v3h13v-3"/>`),
+  drone: ico(`<rect x="7.5" y="8" width="5" height="4" rx="1"/><path d="M7.5 9L4 6M12.5 9L16 6M7.5 11L4 14M12.5 11L16 14"/><circle cx="4" cy="5.5" r="2"/><circle cx="16" cy="5.5" r="2"/><circle cx="4" cy="14.5" r="2"/><circle cx="16" cy="14.5" r="2"/>`),
+  plate: ico(`<rect x="3" y="5" width="14" height="10" rx="1.5"/><path d="M6 8.5h8M6 11.5h5"/>`),
+  sheet: ico(`<path d="M4 3.5h12v13H4z"/><path d="M4 13h12M10 13v3.5M7 6.5h6v4H7z"/>`),
+  video: ico(`<rect x="2.5" y="5" width="11" height="10" rx="1.5"/><path d="M13.5 9l4-2.5v7l-4-2.5"/>`),
+  scale: ico(`<path d="M10 3v14M5 17h10M3 7h14"/><path d="M5 7l-2.5 5a2.5 2.5 0 005 0zM15 7l-2.5 5a2.5 2.5 0 005 0z"/>`),
+  photo: ico(`<rect x="2.5" y="4" width="15" height="12" rx="1.5"/><circle cx="7" cy="8.5" r="1.5"/><path d="M17.5 13l-4.5-4-6 6"/>`),
+  person: ico(`<circle cx="10" cy="6.5" r="3"/><path d="M4 17a6 6 0 0112 0"/>`),
+  doc: ico(`<path d="M5 2.5h7l3 3v12H5z"/><path d="M8 9h4M8 12h4M8 15h2"/>`),
+};
+const modules = (x0, y0, rows, cols, w, h, gap) => Array.from({ length: rows * cols }, (_, i) =>
+  `<rect x="${x0 + (i % cols) * (w + 1)}" y="${y0 + Math.floor(i / cols) * (h + gap)}" width="${w}" height="${h}"/>`).join("");
+const ART = {
+  design: `<svg viewBox="0 0 320 180" class="art" aria-hidden="true">
+    <rect x="34" y="34" width="86" height="62" class="f1"/><rect x="120" y="34" width="66" height="62" class="f2"/><rect x="34" y="96" width="62" height="52" class="f3"/>
+    <rect x="96" y="96" width="90" height="52" class="draw"/>
+    <path class="wall" d="M34 34H186V96M34 34V148H96V96M34 96H186M120 34V96"/>
+    <circle cx="186" cy="148" r="4.5" class="dot"/><path class="cursor" d="M191 153l13 5-6 2-2 6z"/>
+    <rect x="210" y="30" width="90" height="34" rx="9" class="bub-u"/><path class="bl-u" d="M221 42h62M221 52h40"/>
+    <rect x="210" y="74" width="90" height="50" rx="9" class="bub-a"/><circle cx="224" cy="89" r="6" class="av"/><path class="bl-a" d="M236 86h52M236 95h36M221 110h64"/></svg>`,
+  simulate: `<svg viewBox="0 0 320 180" class="art" aria-hidden="true">
+    <circle cx="48" cy="42" r="13" class="sun"/><path class="ray" d="M48 20v-7M48 64v7M26 42h-7M70 42h7M32.5 26.5l-5-5M63.5 26.5l5-5M32.5 57.5l-5 5M63.5 57.5l5 5"/>
+    <rect x="92" y="40" width="196" height="112" class="paper"/>
+    <polygon class="patch" points="124,40 174,40 226,124 160,124"/>
+    <path class="wall" d="M124 40H92V152H288V40H174"/><path class="win" d="M124 37.5h50M124 42.5h50"/>
+    <path class="route" d="M108 138c44 0 50-50 104-50s50 34 58 48"/><circle cx="108" cy="138" r="4" class="dot"/><circle cx="270" cy="136" r="4" class="dot"/>
+    <circle cx="256" cy="72" r="17" class="ring-bg"/><circle cx="256" cy="72" r="17" class="ring" pathLength="100" stroke-dasharray="94 100" transform="rotate(-90 256 72)"/>
+    <text x="256" y="77" class="num">94</text></svg>`,
+  verify: `<svg viewBox="0 0 320 180" class="art" aria-hidden="true">
+    <rect x="22" y="26" width="176" height="128" rx="3" class="photo"/>
+    <g class="mods">${modules(32, 38, 4, 13, 11, 22, 7)}</g>
+    <rect x="28" y="92" width="164" height="30" rx="3" class="mask"/>
+    <rect x="212" y="34" width="88" height="70" rx="5" class="plate"/><path class="bl-a" d="M224 52h64M224 66h44M224 80h52"/>
+    <path class="bad" d="M276 74l10 10M286 74l-10 10"/>
+    <circle cx="300" cy="34" r="11" class="ok"/><path class="tick" d="M294.5 34.5l4 4 7-8"/>
+    <path class="docp" d="M222 118h44l12 12v24h-56z"/><path class="bl-a" d="M232 134h28M232 144h36"/></svg>`,
+};
+const STAGES = [
+  ["A", "Design", "Describe it, or upload a sketch.", ["muse-wonder", "muse-spark-1.3"], ART.design, `<a class="go" href="#/studio">Open the Studio →</a>`],
+  ["B", "Simulate", "Sun, routes and room to move, scored.", ["muse-wonder", "geometry"], ART.simulate, `<a class="go" href="#/studio">Simulate a plan →</a>`],
+  ["C", "Verify", "The built site, checked with proof.", ["sam-3.1", "muse-spark-1.3", "spark-open"], ART.verify, null],
 ];
-const MODELS = [
-  ["muse-wonder", "The agent: plans the site check, designs and improves floor plans, calls up to 14 tools in one turn."],
-  ["sam-3.1", "Counts modules, tables and objects on drone stills, and inside the region a narrated claim is about."],
-  ["muse-spark-1.3", "Reads nameplates and title blocks, counts drawing symbols and module grids, judges claims on stills, drafts documents."],
-  ["muse-spark-open", "On Baseten: hears and watches each walkthrough clip, and flags where the narration and the picture disagree."],
-];
+const FEATURES = [["chat", "Chat to design"], ["sketch", "Sketch to plan"], ["cube", "3D with real sun"], ["walk", "Walk inside"], ["layers", "Layers and tools"], ["export", "GLB · PNG · SVG"]];
+const SHOTS = [["plan", "Plan", "The plan Muse Wonder drew, furnished"], ["3d", "3D", "The same plan in 3D"], ["walk", "Walk", "Standing in the living room"]];
+const RULES = [["scale", "Code decides every verdict"], ["photo", "No finding without evidence"], ["person", "Disagreements go to a person"], ["doc", "Drafts stay on topic"]];
+const MODELS = [["muse-wonder", "Plans, designs, edits"], ["sam-3.1", "Counts what drones see"], ["muse-spark-1.3", "Reads plates, drawings, sketches"], ["muse-spark-open", "Watches the narrated walk"]];
 // A drawing sheet: crop marks, the content, and a title block (drawing, sheet number, revision).
 const sheet = (drawing, number, body, cls = "") => `<div class="sheet ${cls}"><div class="sheet-body">${body}</div>
   <div class="sheet-title"><div><small>Drawing</small><b>${drawing}</b></div><div><small>Sheet</small><b>${esc(number)}</b></div><div><small>Rev</small><b>A</b></div></div></div>`;
@@ -138,57 +180,59 @@ const label = (n, text) => `<div class="eyebrow"><span class="n">${n}</span>${es
 async function renderHome() {
   if (!S.pkg) app.innerHTML = `<p class="muted" style="padding:80px 0">Loading…</p>`;
   await load();
-  const p = S.pkg, live = liveReady();
+  const p = S.pkg, live = liveReady(), watch = live ? "live" : "replay";
   app.innerHTML = `
   <section class="hero">
     <div>
-      <a class="newtag" href="#/studio"><span>NEW</span>Simulate sun, routes and space in any plan →</a>
+      <a class="newtag" href="#/studio"><span>NEW</span>Studio: chat, 3D and walk-through →</a>
       <h1>Design it.<br>Live in it.<br><span class="mk">Prove it.</span></h1>
-      <p class="lead">GroundTruth is an AI site engineer built on Meta's models. Lay out a building with Muse Wonder, simulate how it lives,
-        then check the finished site against the same plan: every finding with its evidence and a drafted report.</p>
-      <div class="ctas"><button class="btn primary big" data-act="live" ${live ? "" : "disabled"}>Watch the site check live →</button>
-        <button class="btn big" data-act="replay">Play a recorded run</button></div>
-      ${live ? "" : `<p class="note-off">Live runs are off on this deployment (no API key). The recorded run still works.</p>`}
-      <form id="brief"><fieldset class="brief"><legend>Design brief</legend><div class="row">
-        <textarea id="brief-text" rows="2" maxlength="800" aria-label="Describe a building to design" placeholder="e.g. a three-bedroom house of about 110 m² with an open kitchen"></textarea>
-        <button class="btn primary small" type="submit" ${live ? "" : "disabled"}>Lay it out →</button></div></fieldset></form>
+      <p class="lead">An AI site engineer, built on Meta's models.</p>
+      <div class="ctas"><a class="btn primary big" href="#/studio">Open the Studio →</a>
+        <button class="btn big" data-act="${watch}">▶ Watch a site check</button></div>
+      <form id="brief"><fieldset class="brief"><legend>Describe a building</legend><div class="row">
+        <textarea id="brief-text" rows="2" maxlength="800" aria-label="Describe a building to design" placeholder="A three-bedroom house with an open kitchen"></textarea>
+        <button class="btn primary small" type="submit" ${live ? "" : "disabled"}>Design it →</button></div></fieldset></form>
     </div>
     <div>
       ${sheet("Two-bedroom home · sun and routes", "SIM-01", `<div id="hero-plan"></div>`, "hero-sheet")}
-      <div class="hero-cap"><span><i style="background:#ffd54a"></i>sun at 10:00 on 21 Dec, Delhi</span><span><i style="background:var(--accent)"></i>a resident's morning route</span>
+      <div class="hero-cap"><span><i style="background:#ffd54a"></i>sun, 10:00, 21 Dec, Delhi</span><span><i style="background:var(--accent)"></i>morning route</span>
         <span id="hero-score"></span></div>
     </div>
   </section>
   <div class="ruler">
-    <div><b>9/9</b><span>planted problems found by the site check</span></div>
-    <div><b>7/7</b><span>correct items passed, no false alarms</span></div>
-    <div><b>~1 min</b><span>and $0.44 per live site check</span></div>
-    <div><b class="hl">4</b><span>Meta models, each doing what it's good at</span></div>
+    <div><b>9/9</b><span>planted problems found</span></div>
+    <div><b>0</b><span>false alarms</span></div>
+    <div><b>~1 min</b><span>per site check</span></div>
+    <div><b class="hl">4</b><span>Meta models</span></div>
   </div>
+  <section class="block" id="studio">
+    <div class="sec-head"><div>${label("01", "Studio")}<h2 class="section">Say it. See it. <span class="hl">Walk through it.</span></h2></div>
+      <a class="btn primary" href="#/studio">Open the Studio →</a></div>
+    ${sheet("One-bedroom home with a study · designed in chat", "ST-01", `<div class="show" id="show">
+      <div class="show-tabs" role="tablist">${SHOTS.map(([k, t], i) => `<button role="tab" data-show="${k}" class="${i ? "" : "on"}">${t}</button>`).join("")}</div>
+      ${SHOTS.map(([k, , alt], i) => `<img src="/showcase/${k}.webp" alt="${esc(alt)}" data-shot="${k}" class="${i ? "" : "on"}" ${i ? `loading="lazy"` : ""}>`).join("")}
+</div>
+      <div class="show-chat"><div class="u">Add a study next to the bedroom, and furnish it</div>
+        <div class="a"><span class="av">W</span><span>Study added · 9 m² · door, window, desk</span><span class="ok">✓</span></div></div>`, "show-sheet")}
+    <div class="feats">${FEATURES.map(([i, t]) => `<div>${ICON[i]}<span>${t}</span></div>`).join("")}</div>
+  </section>
   <section class="block" id="how">
-    ${label("01", "How it works")}
-    <h2 class="section">One plan, from the first sketch <span class="hl">to handover.</span></h2>
-    <p class="lead-c">The models propose and look; the code measures and decides. The same plan carries through all three stages.</p>
-    <div class="process">
-      <div><span class="bubble on">A</span><h3>Design</h3><p>Describe a building or draw it room by room. Muse Wonder lays out rooms, doors and windows; the code refuses overlaps and dead ends.</p>
-        <div class="models"><span class="chip model">muse-wonder</span></div><a class="go" href="#/studio">Open the studio →</a></div>
-      <div><span class="bubble">B</span><h3>Simulate <span class="chip accent">NEW</span></h3><p>Sun through every window over a day, everyone's daily routes, room to move: scored from the geometry, then improved by the AI.</p>
-        <div class="models"><span class="chip model">muse-wonder</span><span class="chip model">geometry</span></div><a class="go" href="#/studio">Simulate a plan →</a></div>
-      <div><span class="bubble">C</span><h3>Verify</h3><p>Drone stills, nameplate photos and a narrated phone walk checked against the design. Every failure becomes a finding with its proof.</p>
-        <div class="models"><span class="chip model">sam-3.1</span><span class="chip model">muse-spark-1.3</span><span class="chip model">spark-open</span></div>
-        <button class="go" data-act="live" ${live ? "" : "disabled"}>Watch it run live →</button></div>
-    </div>
+    ${label("02", "How it works")}
+    <h2 class="section">One plan, <span class="hl">sketch to handover.</span></h2>
+    <div class="stages">${STAGES.map(([n, title, line, models, art, go], i) => `<div class="stage">
+      <div class="art-box">${art}</div>
+      <div class="stage-t"><span class="bubble ${i ? "" : "on"}">${n}</span><h3>${title}</h3></div>
+      <p>${line}</p><div class="models">${models.map((m) => `<span class="chip model">${m}</span>`).join("")}</div>
+      ${go || `<button class="go" data-act="${watch}">Watch it run →</button>`}</div>`).join("")}</div>
   </section>
   ${p ? packageSection(p) : ""}
   <section class="block" id="rules">
-    ${label("03", "Built to be checked")}
-    <h2 class="section">The model chooses what to check. <span class="hl">Code decides the verdict.</span></h2>
-    <p class="lead-c">Construction QA has to hold up in a dispute, so every number traces back to a measurement, a model and an image.</p>
-    <div class="grid2" style="margin-top:40px">
-      ${sheet("Rules the agent works under", "G-001", `<div class="rules">${RULES.map(([b, t], i) => `<p data-n="${i + 1}"><b>${esc(b)}</b><span class="muted">${esc(t)}</span></p>`).join("")}</div>`)}
-      ${sheet("Meta's models and their jobs", "G-002", `<div class="table-wrap"><table class="models-table">${MODELS.map(([m, t]) => `<tr><td>${esc(m)}</td><td>${esc(t)}</td></tr>`).join("")}</table></div>
-        <p class="small muted" style="margin:14px 0 0">What we measured about each model, including where it failed and how we worked around it, is in the
-        <a href="https://github.com/compiler-aditya/groundtruth#how-it-uses-metas-models-and-what-we-learned" target="_blank" rel="noopener">README →</a></p>`)}
+    ${label("04", "Built to be checked")}
+    <h2 class="section">The model proposes. <span class="hl">Code decides.</span></h2>
+    <div class="grid2" style="margin-top:36px">
+      ${sheet("Rules the agent works under", "G-001", `<div class="tiles">${RULES.map(([i, t]) => `<div>${ICON[i]}<b>${t}</b></div>`).join("")}</div>`)}
+      ${sheet("Meta's models and their jobs", "G-002", `<div class="mlist">${MODELS.map(([m, t]) => `<div><span class="chip model">${m}</span><span>${t}</span></div>`).join("")}</div>
+        <a class="go small" href="https://github.com/compiler-aditya/groundtruth#how-it-uses-metas-models-and-what-we-learned" target="_blank" rel="noopener">What we learned about each model →</a>`)}
     </div>
   </section>`;
   $("#brief").onsubmit = (e) => {
@@ -197,10 +241,24 @@ async function renderHome() {
     if (text.length < 3) return $("#brief-text").focus();
     window.GTPlans.designFrom(text);
   };
+  showcase();
   window.GTPlans.heroPreview($("#hero-plan")).then((sim) => {
     const el = $("#hero-score");
-    if (sim && el) el.innerHTML = `<b style="color:var(--ink)">${sim.overall}</b>/100 overall · daylight ${sim.scores.daylight} · movement ${sim.scores.movement} · space ${sim.scores.space}`;
+    if (sim && el) el.innerHTML = `<b style="color:var(--ink)">${sim.overall}</b>/100 · daylight ${sim.scores.daylight} · movement ${sim.scores.movement} · space ${sim.scores.space}`;
   });
+}
+
+// Plan, 3D and Walk take turns until someone picks one.
+function showcase() {
+  const box = $("#show");
+  if (!box) return;
+  const show = (k) => {
+    $$("[data-show]", box).forEach((b) => b.classList.toggle("on", b.dataset.show === k));
+    $$("[data-shot]", box).forEach((im) => im.classList.toggle("on", im.dataset.shot === k));
+  };
+  let i = 0;
+  const timer = setInterval(() => (document.body.contains(box) ? show(SHOTS[++i % SHOTS.length][0]) : clearInterval(timer)), 3800);
+  box.onclick = (e) => { const b = e.target.closest("[data-show]"); if (b) { clearInterval(timer); show(b.dataset.show); } };
 }
 
 function packageSection(p) {
@@ -209,10 +267,10 @@ function packageSection(p) {
   const tabs = [["captures", `What the site captured (${p.captures.length})`], ["design", "The design"], ...(p.planted ? [["key", "Answer key"]] : [])];
   return `<section class="block" id="package">
     <div class="pkg-head">
-      <div>${label("02", "Live demo · site check")}
+      <div>${label("03", "Live demo · site check")}
         <h2 class="section">${problems || "Some"} problems are hidden on this site. <span class="hl">Can the agent find them?</span></h2>
-        <p class="lead-c">A solar site's design package (quantities, an equipment schedule, a drawing register) against what the site captured:
-          ${n("drone_still")} drone stills, ${n("nameplate_photo")} equipment nameplates, ${n("drawing_sheet")} drawing sheets and a narrated phone walk.</p></div>
+        <div class="counts">${[["drone", n("drone_still"), "drone stills"], ["plate", n("nameplate_photo"), "nameplates"], ["sheet", n("drawing_sheet"), "drawings"],
+          ["video", n("walkthrough_video"), "narrated walk"]].map(([i, k, t]) => `<span>${ICON[i]}<b>${k}</b>${t}</span>`).join("")}</div></div>
       <div class="ctas"><button class="btn primary" data-act="live" ${liveReady() ? "" : "disabled"}>Run it live →</button>
         <button class="btn" data-act="replay">Play the recorded run</button></div>
     </div>
@@ -266,10 +324,9 @@ function homeTab(p) {
       </div>`).join("")}</div></div>`).join("")}
     ${walk ? `<div class="group"><h3>${TYPE.walkthrough_video[0]}</h3><div class="walk">
       <video src="${esc(p.walk_video)}" controls preload="none" poster="${esc(walk.thumb)}"></video>
-      <div><b>${esc(walk.id)}: ${esc(walk.label)}</b>
-        <p class="muted small">Real CC0 drone footage of two agrivoltaic plants (Tobi Kellner) with a scripted narration. Three of the spoken
-          claims are false. The agent has to tell which ones from the pictures, and say where in the video it looked.</p>
-        <p class="small muted">Spark Open hears and watches each clip; every claim is then re-checked by Spark 1.3 (and SAM 3.1 for counts) on full-resolution stills.</p></div>
+      <div class="walk-note"><b>${esc(walk.id)}: ${esc(walk.label)}</b>
+        <p><span class="big-n">3</span> of the spoken claims are false. Which ones, and where?</p>
+        <p class="tiny faint">CC0 drone footage (Tobi Kellner), scripted narration</p></div>
     </div></div>` : ""}</div>`;
 }
 
