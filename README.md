@@ -48,20 +48,33 @@ Needs ffmpeg (`brew install ffmpeg`). Results are cached by tool, arguments and 
 
 Deploy: `scripts/build_web.py dist` assembles `dist/`: the app, the demo package with every capture's hash, the images, only the cache entries the demo needs, and no `.env`. Then run `vercel deploy dist --prod` and set `MODEL_API_KEY` in the Vercel project to turn on live runs.
 
-## Floor plan studio
+## Studio
 
-**Design a plan, then check the site against it.** At `#/plans` in the web app, anyone can lay out a home, an office or any building made of rooms:
-- Draw rooms by dragging, or type their exact sizes. Walls are worked out from where rooms touch.
-- Put doors and windows on walls, and furnish the rooms from a palette of 19 pieces.
-- Undo, redo and snapping are built in. Room areas, the total floor area and the door and window schedule are computed as you go.
-- Export a drawing sheet (PNG or SVG) with a title block, sheet number and revision, or the plan file as JSON. Plans are saved in the browser.
+**Design a building by talking to it, then walk through it.** Click **Studio** in the navbar. The AI designer chat beside the canvas does the heavy lifting, and each change appears on the drawing as it is made:
+- **Ask.** Describe a building, or a change ("make the kitchen 1 m wider and add a study next to the bedroom"). Muse Wonder edits the plan with the editor's own tools. The conversation is kept, so follow-ups work, and every reply can be undone.
+- **Upload a raw draft:** a hand sketch, a photo of a drawing, an old plan or a PDF. Muse Spark 1.3 reads its rooms, written dimensions, doors and windows ([gt/sketch.py](gt/sketch.py)). The code turns them into metres, and Wonder lays them out as a clean, checked plan.
+- **3D** builds the model from the plan: walls, open doors, glass, floor finishes, furniture, and the sun for the site's city, date and hour.
+- **Walk** puts you inside at eye height: WASD or on-screen arrows to move, the mouse to look, and a minimap. Walls and furniture are solid.
+- **Tools and layers.**
+  - Tools: select, room, door, window, furniture (19 pieces), measure and note.
+  - Editing: snap, undo and redo, copy and paste, arrow-key nudges, floor finishes and wall height.
+  - Layers show, hide or lock rooms, labels, walls, openings, furniture, notes, dimensions and the grid.
+  - Room areas, the total floor area and the door and window schedule are computed as you go.
+- **Export:**
+  - a drawing sheet (PNG or SVG) with a title block, sheet number and revision;
+  - the 3D model as GLB, for Blender, SketchUp or an AR viewer;
+  - the 3D view as an image;
+  - the design file (JSON).
+
+  Designs are saved in the browser.
 
 **Design with AI.** Describe a building ("a three-bedroom family house of about 110 m² with an open kitchen") or a change ("add a 9 m² home office next to the living room"), and Muse Wonder lays it out with the editor's own tools while you watch the rooms appear. The model proposes and the code measures:
 - [gt/floorplan.py](gt/floorplan.py) places each room against another (`next_to`, `side`, `align`) and refuses overlaps, saying which room and by how much.
 - It finds the shared wall for each door, and uses outside walls only for the entrance and windows.
 - `finish` is refused until `check_plan` finds no overlaps, an entrance, and every room reachable. Warnings flag missing windows, windows that a new room has covered, and rooms below rule-of-thumb sizes.
+- `furnish_room` places the usual furniture for each room's type. Each piece goes against a wall, clear of doorways and of the other pieces, and a piece that does not fit is refused with the reason. Furniture follows its room when the room is moved or resized.
 
-The loop is [gt/planner.py](gt/planner.py); the browser streams it from `/api/plan/assist`.
+The loop is [gt/planner.py](gt/planner.py). The studio chat streams it from `/api/studio/chat`, with the conversation so far and any attached draft.
 
 | Live run (Muse Wonder, 2026-11-02) | Result | Refusals | Time | Cost |
 |---|---|---|---|---|
@@ -69,6 +82,8 @@ The loop is [gt/planner.py](gt/planner.py); the browser streams it from `/api/pl
 | "One-bedroom apartment of about 50 m² with a balcony" | 6 rooms, 51.1 m², 0 errors, 0 warnings | 2 (an entrance on a hallway wall too short; it moved the entrance to the living room) | 67 s | $0.25 |
 | Then "add a home office of about 9 m² next to the living room" | 7 rooms, 60.1 m², existing rooms unchanged | 0 | 22 s | $0.08 |
 | "A small dental clinic with a reception, a waiting room, two treatment rooms, a staff room, a WC and a store" | 8 rooms, 80.3 m², 0 errors, 0 warnings, typed as a clinic | 0 | 49 s | $0.20 |
+| A hand sketch uploaded in the studio chat (a test drawing: six rooms, the overall size written as 12 m × 8 m) | Laid out as drawn: 12 × 8 m, 96 m² | not recorded | 54 s | $0.27 |
+| Studio chat, on a furnished one-bedroom: "Make the kitchen 1 m wider to the east, add a study of about 3 × 3 m next to the bedroom with a door from the hall and a window, and furnish it" | 6 rooms, 77.1 m². The study got its door, window and a desk. The bath moved east to make room, keeping its fixtures and its hall door. | not recorded (13 tool steps) | 69 s | $0.19 |
 
 **Simulate: live in the plan before it's built.** Floor plan tools show how a plan looks; GroundTruth's Simulate mode shows how it works, room by room ([docs/simulation.md](docs/simulation.md), [gt/simulate.py](gt/simulate.py)):
 - **Sun.** Patches of sunlight cross the floor through each window over a day, at the chosen city and date (21 December, March or June), with the plan turned to its real orientation. Each room's hours of direct sun are counted.
@@ -83,7 +98,7 @@ In a live run on the AI-designed three-bedroom house (Delhi, 21 December), Wonde
 - saw the space score drop because the swapped bedroom was only 2.2 m wide, and widened it to 3.0 m;
 - finished with daylight 79 → 90 and overall 90 → 94, in 15 turns, 94 s, $0.58.
 
-What comes next is in [docs/floor-plan-studio.md](docs/floor-plan-studio.md): reading a photo of a sketch, plan reviews with proposals to accept or reject, architect and client editing the same plan, and issued plans feeding GroundTruth's checks. The editor is [public/plans.js](public/plans.js).
+What comes next is in [docs/floor-plan-studio.md](docs/floor-plan-studio.md): plan reviews with proposals to accept or reject, architect and client editing the same plan, and issued plans feeding GroundTruth's checks. The studio is [public/plans.js](public/plans.js), with 3D and walk mode in [public/studio3d.js](public/studio3d.js) (three.js).
 
 ## Tests
 
@@ -145,6 +160,8 @@ Quantity methods: `objects` (SAM count), `tables` (SAM count of whole tables), `
 | [gt/tools.py](gt/tools.py) | The tools, verdict rules, evidence store and result cache |
 | [gt/drafts.py](gt/drafts.py), [gt/report.py](gt/report.py), [gt/evaluate.py](gt/evaluate.py) | NCR/RFI/OBS drafting with the grounding check, the HTML report, scoring against an answer key |
 | [gt/sam.py](gt/sam.py), [gt/spark.py](gt/spark.py), [gt/nameplate.py](gt/nameplate.py), [gt/drawing.py](gt/drawing.py), [gt/walkthrough.py](gt/walkthrough.py), [gt/claims.py](gt/claims.py) | Model-level building blocks |
+| [gt/floorplan.py](gt/floorplan.py), [gt/planner.py](gt/planner.py), [gt/simulate.py](gt/simulate.py), [gt/sketch.py](gt/sketch.py) | Studio: plan geometry, checks and furniture placement; the design assistant's tools and loop; the simulation; reading uploaded drafts |
+| [public/plans.js](public/plans.js), [public/studio3d.js](public/studio3d.js) | The studio UI (canvas, tools, layers, AI chat), and 3D and walk mode |
 | [day1/](day1) | The four model go/no-go tests and their real-data scoring ([docs/day1-tests.md](docs/day1-tests.md)) |
 
 ## Built during the hackathon
