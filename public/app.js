@@ -92,11 +92,11 @@ document.addEventListener("click", (e) => {
 window.addEventListener("hashchange", route);
 async function route() {
   const hash = location.hash || "#/";
-  const page = ["run", "findings", "upload", "how", "plans", "plan/", "studio"].find((p) => hash.startsWith(`#/${p}`))?.replace("/", "") || "home";
-  const studio = page === "plan" || page === "studio";
-  $$(".top nav a[data-nav]").forEach((a) => a.classList.toggle("on", a.dataset.nav === page || ((studio || page === "plans") && a.dataset.nav === "studio")));
-  document.body.classList.toggle("studio", studio);
-  if (page === "plans" || studio) { window.scrollTo({ top: 0, behavior: "instant" }); return window.GTPlans.route(hash, app); }
+  // the studio is its own page now; older links to it land there
+  const old = /^#\/(?:studio|plan)\/(.+)$/.exec(hash);
+  if (old || hash === "#/studio" || hash === "#/plans") return location.replace(`/studio#/${old ? `d/${old[1]}` : ""}`);
+  const page = ["run", "findings", "upload", "how"].find((p) => hash.startsWith(`#/${p}`)) || "home";
+  $$(".top nav a[data-nav]").forEach((a) => a.classList.toggle("on", a.dataset.nav === page));
   if (page === "run") return renderRun();
   if (page === "findings") return renderFindings();
   if (page === "upload") return renderUpload();
@@ -165,8 +165,8 @@ const ART = {
     <path class="docp" d="M222 118h44l12 12v24h-56z"/><path class="bl-a" d="M232 134h28M232 144h36"/></svg>`,
 };
 const STAGES = [
-  ["A", "Design", "Describe it, or upload a sketch.", ["muse-wonder", "muse-spark-1.3"], ART.design, `<a class="go" href="#/studio">Open the Studio →</a>`],
-  ["B", "Simulate", "Sun, routes and room to move, scored.", ["muse-wonder", "geometry"], ART.simulate, `<a class="go" href="#/studio">Simulate a plan →</a>`],
+  ["A", "Design", "Describe it, or upload a sketch.", ["muse-wonder", "muse-spark-1.3"], ART.design, `<a class="go" href="/studio">Open the Studio →</a>`],
+  ["B", "Simulate", "Sun, routes and room to move, scored.", ["muse-wonder", "geometry"], ART.simulate, `<a class="go" href="/studio">Simulate a plan →</a>`],
   ["C", "Verify", "The built site, checked with proof.", ["sam-3.1", "muse-spark-1.3", "spark-open"], ART.verify, null],
 ];
 const FEATURES = [["chat", "Chat to design"], ["sketch", "Sketch to plan"], ["cube", "3D with real sun"], ["walk", "Walk inside"], ["layers", "Layers and tools"], ["export", "GLB · PNG · SVG"]];
@@ -185,10 +185,10 @@ async function renderHome() {
   app.innerHTML = `
   <section class="hero">
     <div>
-      <a class="newtag" href="#/studio"><span>NEW</span>Studio: chat, 3D and walk-through →</a>
+      <a class="newtag" href="/studio"><span>NEW</span>Studio: chat, 3D and walk-through →</a>
       <h1>Design it.<br>Live in it.<br><span class="mk">Prove it.</span></h1>
       <p class="lead">An AI site engineer, built on Meta's models.</p>
-      <div class="ctas"><a class="btn primary big" href="#/studio">Open the Studio →</a>
+      <div class="ctas"><a class="btn primary big" href="/studio">Open the Studio →</a>
         <button class="btn big" data-act="${watch}">▶ Watch a site check</button></div>
       <form id="brief"><fieldset class="brief"><legend>Describe a building</legend><div class="row">
         <textarea id="brief-text" rows="2" maxlength="800" aria-label="Describe a building to design" placeholder="A three-bedroom house with an open kitchen"></textarea>
@@ -208,7 +208,7 @@ async function renderHome() {
   </div>
   <section class="block" id="studio">
     <div class="sec-head"><div>${label("01", "Studio")}<h2 class="section">Say it. See it. <span class="hl">Walk through it.</span></h2></div>
-      <a class="btn primary" href="#/studio">Open the Studio →</a></div>
+      <a class="btn primary" href="/studio">Open the Studio →</a></div>
     ${sheet("One-bedroom home with a study · designed in chat", "ST-01", `<div class="show" id="show">
       <div class="show-tabs" role="tablist">${SHOTS.map(([k, t], i) => `<button role="tab" data-show="${k}" class="${i ? "" : "on"}">${t}</button>`).join("")}</div>
       ${SHOTS.map(([k, , alt], i) => `<img src="/showcase/${k}.webp" alt="${esc(alt)}" data-shot="${k}" class="${i ? "" : "on"}" ${i ? `loading="lazy"` : ""}>`).join("")}
@@ -1132,4 +1132,5 @@ function downloadReport() {
   Object.assign(document.createElement("a"), { href: url, download: "groundtruth-report.json" }).click();
 }
 
+window.GTAuth?.mount($("#site-acct"));
 route();
