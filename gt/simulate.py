@@ -11,7 +11,7 @@ from __future__ import annotations
 import heapq
 import math
 
-from .floorplan import NEEDS_WINDOW, area, check, connects, opening_span, room_by_id
+from .floorplan import MIN_AREA, MIN_SIDE, NEEDS_WINDOW, area, check, connects, opening_span, room_by_id
 
 SILL, HEAD = 0.9, 2.1  # window sill and head heights, m
 DAYS = {"winter": 355, "equinox": 80, "summer": 172}  # 21 December, 21 March, 21 June
@@ -423,9 +423,14 @@ def space(plan: dict) -> dict:
         if r["type"] in ("bathroom", "hallway", "living", "kitchen") and not turn:
             no_turn += 1
             notes.append(f"A 1.5 m wheelchair turning circle doesn't fit in {r['name']}")
+    small = 0
+    for r in plan["rooms"]:  # a room too small for its use (rules of thumb from gt/floorplan.py)
+        if area(r) < MIN_AREA.get(r["type"], 0) - 0.02 or min(r["w"], r["h"]) < MIN_SIDE.get(r["type"], 0) - 0.02:
+            small += 1
+            notes.append(f"{r['name']} is small for a {r['type']} ({area(r):.1f} m², {min(r['w'], r['h']):.2f} m across)")
     narrow = [w for w in check(plan)["warnings"] if "usual minimum" in w]
     notes += narrow
-    score = max(0, 100 - 10 * crowded - 8 * no_turn - 5 * len(narrow))
+    score = max(0, 100 - 10 * crowded - 8 * no_turn - 12 * small - 5 * len(narrow))
     return {"rooms": rows, "notes": notes, "score": score}
 
 

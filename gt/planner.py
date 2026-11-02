@@ -37,6 +37,8 @@ PLAN_TOOLS = [
         {"room": ROOM, "name": {"type": "string"}, "type": {"type": "string", "enum": list(ROOM_TYPES)}, "x": NUM, "y": NUM,
          "width": NUM, "depth": NUM}, ["room"]),
     _fn("remove_room", "Remove a room and its doors and windows.", {"room": ROOM}, ["room"]),
+    _fn("swap_rooms", "Swap the names and uses of two rooms in one step (walls, doors and windows stay; furniture moves with its room).",
+        {"room_a": ROOM, "room_b": ROOM}, ["room_a", "room_b"]),
     _fn("connect",
         "Put a door (or an open passage for open-plan spaces) in the wall two rooms share. The tool finds the wall and "
         "the position; the door swings into the room you enter, never into a hallway.",
@@ -87,10 +89,12 @@ SYSTEM_IMPROVE = (
     "sun_on_each_wall_h to see which walls actually get sun.\n"
     "1. Read the goal and the baseline simulation. In a short note, say which changes you will try and why.\n"
     "2. Make the changes with the tools. Good moves: add or widen windows on walls that get sun (add_window, "
-    "remove_opening); swap the uses of two rooms of similar size (update_room with name and type, via a temporary "
-    "name); move or add a door so a route no longer crosses a bedroom (remove_opening, connect); resize or move rooms "
-    "only when needed. Keep the user's rooms and roughly their sizes unless the goal asks otherwise.\n"
-    "3. Call simulate after each change or small group of changes. Undo anything that made a score worse.\n"
+    "remove_opening); swap the uses of two rooms of similar size with swap_rooms (a room must still suit its use: the "
+    "space score counts rooms that are small for their type); move or add a door so a route no longer crosses a "
+    "bedroom (remove_opening, connect); resize or move rooms only when needed. Keep the user's rooms and roughly "
+    "their sizes unless the goal asks otherwise.\n"
+    "3. Put several tool calls in one turn (they run in order) and end each group with simulate. Undo anything that "
+    "made a score worse. You have a limited number of turns, so finish once the goal is met.\n"
     "4. Call check_plan, then finish with a summary that quotes the before and after scores. finish is refused if the "
     "overall score went down; if nothing you try helps, put the plan back and finish saying so."
 )
@@ -104,7 +108,6 @@ class SimBuilder(PlanBuilder):
         self.settings = settings
         self.start = json.dumps(self.plan, sort_keys=True)
         self.before = sim_summary(simulate(self.plan, **settings))
-        self.after = self.before
 
     def tool_simulate(self) -> dict:
         return sim_summary(simulate(self.plan, **self.settings))
@@ -116,7 +119,6 @@ class SimBuilder(PlanBuilder):
             raise ValueError(f"not finished: the overall score fell from {self.before['overall']} to {after['overall']} "
                              f"(scores now {after['scores']}, before {self.before['scores']}); undo what hurt it or try something else")
         out = super().tool_finish(summary, name, kind)
-        self.after = after
         return {**out, "before": self.before["scores"], "after": after["scores"]}
 
 
@@ -131,6 +133,8 @@ def _brief(tool: str, args: dict, out: dict) -> str:
         return f"Updated {r['room']}: {r['width']:.2f} × {r['depth']:.2f} m at x {r['x']}, y {r['y']}"
     if tool == "remove_room":
         return f"Removed {out['removed']}"
+    if tool == "swap_rooms":
+        return f"Swapped {out['swapped'][1]} and {out['swapped'][0]}"
     if tool == "connect":
         return f"{'Door' if out['added'] == 'door' else 'Open passage'} between {out['between'][0]} and {out['between'][1]}"
     if tool == "add_entrance":
@@ -158,6 +162,8 @@ def run_planner(request: str, plan: dict | None = None, *, model: str = WONDER, 
     changed the plan carries the whole plan, so a browser can draw it as it grows. With simulation settings
     (latitude, day, north) it improves the plan against the simulation instead, and reports scores before and after."""
     builder = SimBuilder(plan, simulation) if simulation else PlanBuilder(plan)
+    if simulation:
+        max_turns = max(max_turns, 20)
     client = client or meta_client()
     usage = Usage(PRICE["wonder_in_per_m"], PRICE["wonder_out_per_m"]) if model == WONDER else Usage()
     intro = f"Request: {request}\n\nCurrent plan (metres; x east, y south):\n{describe(builder.plan)}"
@@ -201,8 +207,11 @@ def run_planner(request: str, plan: dict | None = None, *, model: str = WONDER, 
             conversation.append({"type": "function_call_output", "call_id": call.call_id, "output": json.dumps(output)})
         if builder.finished:
             break
-    scores = {"before": builder.before["scores"] | {"overall": builder.before["overall"]},
-              "after": builder.after["scores"] | {"overall": builder.after["overall"]}} if simulation else {}
+    if simulation:  # measured on the plan as it ends, finished or not
+        after = sim_summary(simulate(builder.plan, **simulation))
+        scores = {"before": builder.before["scores"] | {"overall": builder.before["overall"]}, "after": after["scores"] | {"overall": after["overall"]}}
+    else:
+        scores = {}
     return {"plan": builder.plan, "finished": bool(builder.finished), "summary": builder.finished, "name": builder.name, "kind": builder.kind, **scores,
             "check": check(builder.plan), "model": model, "turns": turn, "seconds": round(time.time() - started, 1),
             "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens, "cost_usd": round(usage.cost, 4), "trace": trace}

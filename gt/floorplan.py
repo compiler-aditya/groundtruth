@@ -316,6 +316,19 @@ class PlanBuilder:
         self.plan["openings"] = [op for op in self.plan["openings"] if op["id"] not in dropped]
         return {"updated": self._report(r), **({"removed_openings_that_no_longer_fit": dropped} if dropped else {})}
 
+    def tool_swap_rooms(self, room_a: str, room_b: str) -> dict:
+        """Swap two rooms' names and uses (the walls, doors and windows stay); their furniture moves with them."""
+        a, b = self._room(room_a), self._room(room_b)
+        if a["id"] == b["id"]:
+            raise ValueError("pick two different rooms")
+        inside = lambda r, it: r["x"] <= it["cx"] <= r["x"] + r["w"] and r["y"] <= it["cy"] <= r["y"] + r["h"]  # noqa: E731
+        moves = [(it, a, b) for it in self.plan["items"] if inside(a, it)] + [(it, b, a) for it in self.plan["items"] if inside(b, it)]
+        for it, src, dst in moves:  # same offset from the north-west corner, kept inside the new room
+            it["cx"] = r2(min(max(dst["x"] + it["cx"] - src["x"], dst["x"] + 0.3), dst["x"] + dst["w"] - 0.3))
+            it["cy"] = r2(min(max(dst["y"] + it["cy"] - src["y"], dst["y"] + 0.3), dst["y"] + dst["h"] - 0.3))
+        a["name"], b["name"], a["type"], b["type"] = b["name"], a["name"], b["type"], a["type"]
+        return {"swapped": [a["name"], b["name"]], "now": [self._report(a), self._report(b)]}
+
     def tool_remove_room(self, room: str) -> dict:
         r = self._room(room)
         self.plan["rooms"].remove(r)

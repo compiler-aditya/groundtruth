@@ -69,4 +69,14 @@ dirty = {"rooms": [{"id": "a", "name": "A", "type": "nope", "x": "1", "y": 0, "w
          "openings": [{"id": "o", "type": "door", "room": "a", "side": "n", "at": 1, "width": 0.9}, {"id": "p", "room": "zz", "side": "n"}]}
 cleaned = clean(dirty)
 assert [r["type"] for r in cleaned["rooms"]] == ["other"] and [o["id"] for o in cleaned["openings"]] == ["o"], cleaned
+# swapping two rooms swaps their names and uses; furniture moves with them, kept inside
+sw = PlanBuilder()
+sw.call("add_room", {"name": "Kitchen", "type": "kitchen", "width": 4, "depth": 3, "x": 0, "y": 0})
+sw.call("add_room", {"name": "Bedroom", "type": "bedroom", "width": 3, "depth": 3, "next_to": "Kitchen", "side": "east"})
+sw.plan["items"] = [{"id": "bed", "type": "bed_double", "cx": 6.0, "cy": 1.5, "w": 1.6, "h": 2.0, "rot": 0}]
+out = sw.call("swap_rooms", {"room_a": "Kitchen", "room_b": "Bedroom"})
+assert out["swapped"] == ["Bedroom", "Kitchen"], out
+assert [(r["name"], r["type"], r["x"]) for r in sw.plan["rooms"]] == [("Bedroom", "bedroom", 0), ("Kitchen", "kitchen", 4)]
+assert sw.plan["items"][0]["cx"] == 2.0 and sw.plan["items"][0]["cy"] == 1.5, sw.plan["items"]
+assert "different rooms" in sw.call("swap_rooms", {"room_a": "Kitchen", "room_b": "kitchen"})["error"]
 print("floorplan: all checks passed")

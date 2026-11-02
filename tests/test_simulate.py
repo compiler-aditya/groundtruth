@@ -104,6 +104,12 @@ bed2 = h._room("Bedroom 2")
 h.plan["items"] += [{"id": f"x{i}", "type": "wardrobe", "cx": bed2["x"] + 1.9, "cy": bed2["y"] + 0.4 + i * 0.6, "w": 3.6, "h": 0.6, "rot": 0} for i in range(4)]
 assert any(n.startswith("Furniture covers") and "Bedroom 2" in n for n in sim.space(h.plan)["notes"])
 
+# a room too small for its use costs space points
+tiny = home()
+tiny.call("update_room", {"room": "Bathroom", "name": "Bedroom 3", "type": "bedroom", "width": 2.0})
+sp3 = sim.space(tiny.plan)
+assert any(n.startswith("Bedroom 3 is small for a bedroom") for n in sp3["notes"]) and sp3["score"] < sp["score"], sp3
+
 # --- a clinic: a visitor goes through reception and waiting to treatment; staff to their room
 c = PlanBuilder()
 for args in ({"name": "Reception", "type": "reception", "width": 4, "depth": 3, "x": 0, "y": 0},
