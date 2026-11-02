@@ -12,6 +12,7 @@
 body.studio #app { max-width: none; padding: 0; }
 body.studio .foot, body.studio .announce { display: none; }
 .pe { display: flex; flex-direction: column; height: calc(100vh - 65px); height: calc(100dvh - 65px); }
+body.app .pe { height: 100vh; height: 100dvh; }
 .pe-top { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
 .pe-name { width: 260px; max-width: 46vw; font-weight: 600; font-size: 15px; }
 .pe-top select { width: auto; }
@@ -232,3 +233,24 @@ body.studio .foot, body.studio .announce { display: none; }
 .hud-card kbd { font: 500 11px var(--mono); color: var(--ink); background: var(--bg); border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; margin-right: 2px; }
 .hello-models { display: flex; gap: 6px; margin-top: 10px; }
 .block.first { border-top: 0; padding-top: 16px; }
+
+/* studio.html: its own app bar and designs page, no site header or footer */
+body.app { background: var(--bg); }
+.app-bar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 14px; height: 56px; padding: 0 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.app-brand { display: flex; align-items: center; gap: 9px; font: 600 17px var(--display); letter-spacing: -.03em; color: var(--ink); text-decoration: none; }
+.app-brand:hover { text-decoration: none; }
+.app-brand .mark, .app-mark { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--accent); color: var(--accent); display: grid; place-items: center; font-size: 12px; font-weight: 700; flex: none; }
+.app-mark { text-decoration: none; margin-right: 2px; }
+.app-mark:hover { background: var(--accent); color: #fff; text-decoration: none; }
+.app-tag { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .07em; color: #fff; background: var(--accent); border-radius: 4px; padding: 2px 7px; }
+.acct-slot { display: inline-flex; align-items: center; }
+.app-home { max-width: 1180px; margin: 0 auto; padding: 36px 28px 80px; }
+.app-head { display: flex; gap: 16px 24px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 8px; }
+.app-head h1 { font-size: 40px; margin: 0; }
+.app-note { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; background: var(--panel); border: 1px dashed var(--line-2); border-radius: 8px; padding: 10px 12px 10px 16px; font-size: 14px; color: var(--muted); }
+.app-h2 { display: flex; gap: 10px; align-items: baseline; font-size: 19px; margin: 34px 0 14px; }
+.app-h2 span { font: 500 12px var(--mono); color: var(--faint); }
+.app-h2 small { font-size: 13px; font-weight: 400; color: var(--muted); font-family: var(--sans); letter-spacing: 0; }
+.pe-status.bad { color: var(--rfi); }
+@media (max-width: 600px) { .pe-top .app-mark, .pe-top #pe-file, .pe-top .pe-name { order: -2; } .pe-top .acct-slot { order: -1; } .pe-top .pe-name { flex: 1; min-width: 0; }
+  .app-bar { padding: 0 14px; } .app-home { padding: 24px 16px 60px; } .app-head h1 { font-size: 30px; } .app-brand span:last-child { display: none; } }

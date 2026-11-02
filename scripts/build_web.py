@@ -115,6 +115,7 @@ def dist() -> None:
     (DIST / "vercel.json").write_text(json.dumps({
         "$schema": "https://openapi.vercel.sh/vercel.json",
         "functions": {"app.py": {"maxDuration": 300}},
+        "rewrites": [{"source": "/studio", "destination": "/studio.html"}],
     }, indent=2))
     (DIST / ".vercelignore").write_text(".env\n.env.*\n__pycache__/\n")
     size = sum(f.stat().st_size for f in DIST.rglob("*") if f.is_file()) / 1e6

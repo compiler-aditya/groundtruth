@@ -1,4 +1,5 @@
-/* GroundTruth floor plan studio: the plans page and the plan editor. Plain JS; plans are saved in this browser.
+/* GroundTruth studio (studio.html): the designs page and the editor. Plain JS. Designs are kept in this browser and,
+   when signed in (auth.js), in the account too.
    Units are metres. Rooms are axis-aligned rectangles; walls are worked out from where rooms touch. */
 "use strict";
 window.GTPlans = (() => {
@@ -85,24 +86,64 @@ window.GTPlans = (() => {
     ]) },
   };
 
-  /* ---------------- storage (this browser only) ---------------- */
-  const KEY = "gt.plans.v1";
+  /* ---------------- storage: this browser, and the account when signed in ---------------- */
+  const GUEST = "gt.plans.v1";
+  const signedIn = () => window.GTAuth?.user || null;
+  const storeKey = () => (signedIn() ? `gt.plans.u.${signedIn().id}` : GUEST); // a shared computer keeps accounts apart
   let memory = {}; // used when the browser refuses storage
   function loadAll() {
-    try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { return memory; }
+    try { return JSON.parse(localStorage.getItem(storeKey()) || "{}"); } catch { return memory; }
   }
   function saveAll(all) {
     memory = all;
-    try { localStorage.setItem(KEY, JSON.stringify(all)); return true; } catch { return false; }
+    try { localStorage.setItem(storeKey(), JSON.stringify(all)); return true; } catch { return false; }
   }
   function savePlan(plan) {
     const all = loadAll();
     plan.updated = Date.now();
     all[plan.id] = plan;
+    Cloud.push(plan);
     return saveAll(all);
   }
   const getPlan = (id) => loadAll()[id];
-  function deletePlan(id) { const all = loadAll(); delete all[id]; saveAll(all); }
+  function deletePlan(id) { const all = loadAll(); delete all[id]; saveAll(all); Cloud.remove(id); }
+
+  // Signed in, each save also goes to the account, a moment later so that typing doesn't send a request per key.
+  const Cloud = {
+    timers: {}, state: "", msg: "",
+    push(plan) {
+      if (!signedIn()) return;
+      clearTimeout(this.timers[plan.id]);
+      this.set("saving");
+      this.timers[plan.id] = setTimeout(async () => {
+        try {
+          const res = await fetch(`/api/designs/${encodeURIComponent(plan.id)}`, { method: "PUT", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: plan.name, updated: plan.updated, data: plan }) });
+          this.set(res.ok ? "saved" : "error", res.ok ? "" : (await res.json().catch(() => ({}))).detail);
+        } catch { this.set("error"); }
+      }, 700);
+    },
+    remove(id) { if (signedIn()) fetch(`/api/designs/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {}); },
+    set(state, msg = "") { this.state = state; this.msg = msg; paintStatus(); },
+    // On sign-in, designs made here as a guest move into the account; then the newer copy of each design wins.
+    async sync() {
+      if (!signedIn()) return;
+      const mine = loadAll();
+      let guest = {};
+      try { guest = JSON.parse(localStorage.getItem(GUEST) || "{}"); localStorage.removeItem(GUEST); } catch {}
+      for (const p of Object.values(guest)) if (!mine[p.id] || (mine[p.id].updated || 0) < (p.updated || 0)) mine[p.id] = p;
+      const res = await fetch("/api/designs");
+      const remote = new Map();
+      if (res.ok) {
+        for (const d of (await res.json()).designs) {
+          remote.set(d.id, d.updated);
+          if (!mine[d.id] || (mine[d.id].updated || 0) < d.updated) mine[d.id] = d.data;
+        }
+      }
+      saveAll(mine);
+      for (const p of Object.values(mine)) if (!remote.has(p.id) || remote.get(p.id) < (p.updated || 0)) this.push(p);
+    },
+  };
 
   /* ---------------- geometry ---------------- */
   const EPS = 0.02, EXT = 0.2, INT = 0.1; // wall thickness: exterior, interior
@@ -387,12 +428,24 @@ window.GTPlans = (() => {
       plan.rooms.length ? drawPlan(plan, fitView(plan, W, H, 14), { labels: false }) : `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-size="13" fill="#9a9890">Empty</text>`}</svg>`;
   }
 
-  /* ---------------- plans page ---------------- */
+  /* ---------------- designs page ---------------- */
+  const appBar = () => `<header class="app-bar"><a class="app-brand" href="/" title="GroundTruth home"><span class="mark">✓</span><span>GroundTruth</span></a>
+    <span class="app-tag">Studio</span><span class="pe-spacer"></span><span class="acct-slot" id="acct"></span></header>`;
   function renderList(app) {
-    const mine = Object.values(loadAll()).sort((a, b) => b.updated - a.updated);
-    app.innerHTML = `
-    <div class="page-head"><div class="eyebrow">Studio</div><h1>Start a design</h1></div>
-    <section class="block first">
+    const mine = Object.values(loadAll()).sort((a, b) => b.updated - a.updated), user = signedIn();
+    const guestNote = window.GTAuth?.on && !user ? `<div class="app-note"><span>Your designs are kept in this browser.</span>
+      <button class="btn small primary" data-acct="up">Create a free account</button><button class="link" data-acct="in">Sign in</button></div>` : "";
+    const designs = mine.length ? `<h2 class="app-h2">Your designs <span>${mine.length}</span><small>${user ? "in your account" : "in this browser"}</small></h2>
+      <div class="plan-grid">${mine.map((p) => `<div class="plan-card mine">
+        <a href="#/d/${esc(p.id)}" class="pc-open">${thumb(p)}</a><div class="pc-body"><a href="#/d/${esc(p.id)}"><b>${esc(p.name)}</b></a>
+        <span class="faint tiny">${esc(KINDS[p.kind] || "Plan")} · ${p.rooms.length} rooms · ${fmtA(totalArea(p))} · edited ${esc(new Date(p.updated).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }))}</span>
+        <span class="pc-actions"><a class="btn small" href="#/d/${esc(p.id)}">Open</a><button class="btn small" data-pact="dup" data-id="${esc(p.id)}">Duplicate</button>
+        <button class="btn small" data-pact="del" data-id="${esc(p.id)}">Delete</button></span></div></div>`).join("")}</div>` : "";
+    app.innerHTML = `${appBar()}
+    <div class="app-home">
+      <div class="app-head"><h1>${user ? `Hi, ${esc(user.name.split(" ")[0])}` : "Start a design"}</h1>${guestNote}</div>
+      ${designs}
+      <h2 class="app-h2">${mine.length ? "Start a new design" : "Start from"}</h2>
       <div class="plan-grid"><button class="plan-card ai" data-pact="new-ai"><div class="ai-art" aria-hidden="true">✨</div><div class="pc-body"><b>Describe it to the AI</b>
         <span class="muted small">Say it, or upload a sketch.</span></div></button>
         ${Object.entries(TEMPLATES).map(([key, t]) => {
@@ -402,22 +455,15 @@ window.GTPlans = (() => {
       }).join("")}</div>
       <p class="small muted" style="margin:12px 0 0"><button class="link" data-pact="import">Open a plan file (.json)</button>
         <input type="file" id="plan-import" accept=".json,application/json" hidden></p>
-    </section>
-    <section class="block"><h2 class="section" style="font-size:19px">Your designs</h2>
-      ${mine.length ? `<div class="plan-grid">${mine.map((p) => `<div class="plan-card mine">
-        <a href="#/studio/${esc(p.id)}" class="pc-open">${thumb(p)}</a><div class="pc-body"><a href="#/studio/${esc(p.id)}"><b>${esc(p.name)}</b></a>
-        <span class="faint tiny">${esc(KINDS[p.kind] || "Plan")} · ${p.rooms.length} rooms · ${fmtA(totalArea(p))} · edited ${esc(new Date(p.updated).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }))}</span>
-        <span class="pc-actions"><a class="btn small" href="#/studio/${esc(p.id)}">Open</a><button class="btn small" data-pact="dup" data-id="${esc(p.id)}">Duplicate</button>
-        <button class="btn small" data-pact="del" data-id="${esc(p.id)}">Delete</button></span></div></div>`).join("")}</div>`
-        : `<p class="muted">None yet.</p>`}
-    </section>`;
+    </div>`;
     $("#plan-import").onchange = (e) => importFile(e.target.files[0]);
+    window.GTAuth?.mount($("#acct"));
   }
 
   function newPlan(key) {
     const plan = (TEMPLATES[key] || TEMPLATES.blank).make();
     savePlan(plan);
-    location.hash = `#/studio/${plan.id}`;
+    location.hash = `#/d/${plan.id}`;
   }
 
   function importFile(file) {
@@ -428,7 +474,7 @@ window.GTPlans = (() => {
       plan.id = uid("p");
       plan.name = String(plan.name || "Imported plan").slice(0, 80);
       savePlan(plan);
-      location.hash = `#/studio/${plan.id}`;
+      location.hash = `#/d/${plan.id}`;
     }).catch(() => alert("That file isn't a GroundTruth plan (.json)."));
   }
 
@@ -460,7 +506,7 @@ window.GTPlans = (() => {
     const plan = getPlan(id);
     if (!plan) {
       app.innerHTML = `<div class="page-head"><h1>Design not found</h1><p class="muted">It may have been made in another browser. Designs are saved per browser.</p>
-        <a class="btn" href="#/plans">← All projects</a></div>`;
+        <a class="btn" href="#/">← All designs</a></div>`;
       return;
     }
     E.three?.pause();
@@ -477,8 +523,9 @@ window.GTPlans = (() => {
     app.innerHTML = `
     <div class="pe studio" id="plan-editor">
       <div class="pe-top">
+        <a class="app-mark" href="#/" title="All designs">✓</a>
         <details class="pe-menu left" id="pe-file"><summary class="btn small" title="Projects and files">☰ File</summary><div class="pe-menu-list">
-          <button data-pact="file-new">New blank design</button><a href="#/plans">All projects and templates</a>
+          <button data-pact="file-new">New blank design</button><a href="#/">All designs and templates</a>
           <button data-pact="file-import">Open a plan file (.json)…</button><input type="file" id="studio-import" accept=".json,application/json" hidden>
           <button data-pact="file-dup">Duplicate this design</button></div></details>
         <input class="pe-name" id="pe-name" value="${esc(plan.name)}" aria-label="Design name" maxlength="80">
@@ -492,6 +539,7 @@ window.GTPlans = (() => {
           <button data-pact="export-png">Drawing sheet (PNG)</button><button data-pact="export-svg">Drawing sheet (SVG)</button>
           <button data-pact="export-glb">3D model (.glb) for Blender, SketchUp, AR</button><button data-pact="export-shot">3D view as an image (PNG)</button>
           <button data-pact="export-json">Design file (JSON), to back up or move</button></div></details>
+        <span class="acct-slot" id="acct"></span>
       </div>
       <div class="pe-body">
         <div class="pe-left"><div class="pe-tools" id="pe-tools"></div><div class="pe-layers" id="pe-layers"></div></div>
@@ -524,6 +572,7 @@ window.GTPlans = (() => {
     svg.addEventListener("pointercancel", onPointerUp);
     svg.addEventListener("pointerleave", () => { if (E.hover) { E.hover = null; render(); } });
     bindChat();
+    window.GTAuth?.mount($("#acct"));
     requestAnimationFrame(() => {
       fitToScreen();
       render(true);
@@ -1039,7 +1088,12 @@ window.GTPlans = (() => {
   }
   function paintStatus() {
     const el = $("#pe-status");
-    if (el) el.textContent = E.savedOk ? "Saved in this browser" : "Not saved: this browser blocks storage. Export the plan to keep it.";
+    if (!el) return;
+    const C = Cloud;
+    el.classList.toggle("bad", !E.savedOk || C.state === "error");
+    el.textContent = !E.savedOk ? "Not saved: this browser blocks storage. Export the plan to keep it."
+      : !signedIn() ? (window.GTAuth?.on ? "Saved in this browser · sign in to keep it" : "Saved in this browser")
+      : C.state === "saving" ? "Saving…" : C.state === "error" ? `Saved here only: ${C.msg || "couldn't reach your account"}` : "Saved to your account";
   }
 
   function render(sideToo = false) {
@@ -1848,9 +1902,9 @@ window.GTPlans = (() => {
       paintChat();
     },
     "walk-lock": () => E.three?.lockPointer(),
-    "file-new": () => { const plan = TEMPLATES.blank.make(); plan.name = "Untitled design"; savePlan(plan); E.openAssist = true; location.hash = `#/studio/${plan.id}`; },
+    "file-new": () => { const plan = TEMPLATES.blank.make(); plan.name = "Untitled design"; savePlan(plan); E.openAssist = true; location.hash = `#/d/${plan.id}`; },
     "file-import": () => $("#studio-import")?.click(),
-    "file-dup": () => { const copy = { ...JSON.parse(JSON.stringify(E.plan)), id: uid("p"), name: `${E.plan.name} (copy)`, chat: [] }; savePlan(copy); location.hash = `#/studio/${copy.id}`; },
+    "file-dup": () => { const copy = { ...JSON.parse(JSON.stringify(E.plan)), id: uid("p"), name: `${E.plan.name} (copy)`, chat: [] }; savePlan(copy); location.hash = `#/d/${copy.id}`; },
     "export-glb": async () => {
       $("#pe-export").open = false;
       try { download(await (await ensure3d()).exportGLB(), `${slug(E.plan)}.glb`); } catch (err) { alert(`The 3D model couldn't be exported: ${err.message || err}`); }
@@ -1867,27 +1921,46 @@ window.GTPlans = (() => {
 
   window.addEventListener("resize", () => { if ($("#plan-editor") && E.view) render(); });
 
+  // studio.html: #/ the designs page, #/d/<id> a design, #/new a new design (with a brief from the home page, if any).
   function route(hash, app) {
-    if (hash.startsWith("#/studio")) { // the studio opens your latest design, or a new one with the AI designer
-      const id = decodeURIComponent(hash.slice(9));
-      if (id) return renderEditor(app, id);
-      let plan = Object.values(loadAll()).sort((a, b) => b.updated - a.updated)[0];
-      if (!plan) { plan = TEMPLATES.blank.make(); plan.name = "Untitled design"; savePlan(plan); E.openAssist = true; }
-      location.replace(`#/studio/${plan.id}`);
-      return;
+    if (hash.startsWith("#/new")) {
+      const plan = TEMPLATES.blank.make();
+      plan.name = "Untitled design";
+      savePlan(plan);
+      let brief = "";
+      try { brief = sessionStorage.getItem("gt.brief") || ""; sessionStorage.removeItem("gt.brief"); } catch {}
+      Object.assign(E, { openAssist: true, prefill: brief, autorun: !!brief });
+      return location.replace(`#/d/${plan.id}`);
     }
-    const id = hash.startsWith("#/plan/") ? decodeURIComponent(hash.slice(7)) : "";
-    if (id) renderEditor(app, id);
-    else renderList(app);
+    const m = /^#\/(?:d|studio|plan)\/(.+)$/.exec(hash);
+    if (m) return renderEditor(app, decodeURIComponent(m[1]));
+    renderList(app);
   }
 
-  // From the home page: a new design with the AI designer working on the description.
+  async function boot(app) {
+    await Promise.race([window.GTAuth?.ready, new Promise((r) => setTimeout(r, 3000))]);
+    await Cloud.sync().catch(() => {});
+    window.addEventListener("hashchange", () => route(location.hash, app));
+    window.GTAuth?.onChange(async (user) => {
+      await Cloud.sync().catch(() => {});
+      if (!$("#plan-editor")) return route(location.hash, app);
+      if (!user) return location.assign("#/"); // the design belongs to the account that just signed out
+      E.savedOk = savePlan(E.plan); // a design made as a guest is now saved to the account
+      paintStatus();
+    });
+    // pictures in the chat open full size
+    document.addEventListener("click", (e) => {
+      const z = e.target.closest("[data-zoom]"), box = $("#lightbox");
+      if (box && z) { $("img", box).src = z.dataset.full || z.getAttribute("src"); $("p", box).textContent = z.dataset.caption || ""; box.hidden = false; }
+      else if (box && e.target.closest("#lightbox")) box.hidden = true;
+    });
+    route(location.hash, app);
+  }
+
+  // From the home page: open the studio on a new design, with the AI designer working on the description.
   function designFrom(text) {
-    const plan = TEMPLATES.blank.make();
-    plan.name = "Untitled design";
-    savePlan(plan);
-    Object.assign(E, { openAssist: true, prefill: text, autorun: true });
-    location.hash = `#/studio/${plan.id}`;
+    try { sessionStorage.setItem("gt.brief", text); } catch {}
+    location.href = "/studio#/new";
   }
 
   // The home page's drawing: the two-bedroom template with the simulation's sun at 10:00 on 21 December in Delhi and
@@ -1925,6 +1998,6 @@ window.GTPlans = (() => {
     }
   }
 
-  return { route, drawPlan, fitView, walls, TEMPLATES, designFrom, heroPreview,
+  return { boot, route, drawPlan, fitView, walls, TEMPLATES, designFrom, heroPreview,
     geometry: { walls, openingGeom, shared, footprint, bounds, FLOORS, defaultFloor } };
 })();
