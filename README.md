@@ -50,7 +50,7 @@ Deploy: `scripts/build_web.py dist` assembles `dist/`: the app, the demo package
 
 ## Studio
 
-**Design a building by talking to it, then walk through it.** Click **Studio** in the navbar. The AI designer chat beside the canvas does the heavy lifting, and each change appears on the drawing as it is made:
+**Design a building by talking to it, then walk through it.** Click **Studio** in the navbar: it opens as its own app at `/studio` ([public/studio.html](public/studio.html)), with your designs first. The AI designer chat beside the canvas does the heavy lifting, and each change appears on the drawing as it is made:
 - **Ask.** Describe a building, or a change ("make the kitchen 1 m wider and add a study next to the bedroom"). Muse Wonder edits the plan with the editor's own tools. The conversation is kept, so follow-ups work, and every reply can be undone.
 - **Upload a raw draft:** a hand sketch, a photo of a drawing, an old plan or a PDF. Muse Spark 1.3 reads its rooms, written dimensions, doors and windows ([gt/sketch.py](gt/sketch.py)). The code turns them into metres, and Wonder lays them out as a clean, checked plan.
 - **3D** builds the model from the plan: walls, open doors, glass, floor finishes, furniture, and the sun for the site's city, date and hour.
@@ -66,7 +66,13 @@ Deploy: `scripts/build_web.py dist` assembles `dist/`: the app, the demo package
   - the 3D view as an image;
   - the design file (JSON).
 
-  Designs are saved in the browser.
+  Designs are saved in the browser, and in your account when you sign in.
+- **Accounts** ([gt/accounts.py](gt/accounts.py), [public/auth.js](public/auth.js)) are optional: anyone can design as a guest.
+  - Signing up takes an email and a password, and the designs then follow you to any browser.
+  - Designs made as a guest move into the account at sign-in.
+  - Passwords are hashed with scrypt. The session cookie is HttpOnly and SameSite=Lax, and only a hash of its token is stored.
+  - Changes from other sites are refused, and repeated failed sign-ins are throttled.
+  - Storage is Postgres when `DATABASE_URL` is set (Neon on Vercel) and SQLite locally. Accounts switch off on a serverless host with no database.
 
 **Design with AI.** Describe a building ("a three-bedroom family house of about 110 m² with an open kitchen") or a change ("add a 9 m² home office next to the living room"), and Muse Wonder lays it out with the editor's own tools while you watch the rooms appear. The model proposes and the code measures:
 - [gt/floorplan.py](gt/floorplan.py) places each room against another (`next_to`, `side`, `align`) and refuses overlaps, saying which room and by how much.
