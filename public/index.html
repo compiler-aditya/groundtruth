@@ -7,13 +7,12 @@
   <meta name="description" content="Design a building with Muse Wonder, simulate how it lives, then check the built site against it with Meta's models, every finding backed by evidence.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/plans.css">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23ff4c00'/%3E%3Cpath d='M9 17l5 5 9-11' stroke='white' stroke-width='3.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='white' stroke='%23ff4c00' stroke-width='3'/%3E%3Cpath d='M10 16.5l4 4 8-9' stroke='%23ff4c00' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 </head>
 <body>
-  <div class="announce" id="announce"><a href="#/plans">New: simulate how a plan lives (sun, routes and space), then let Muse Wonder improve it. <b>Try it →</b></a></div>
   <header class="top">
     <div class="wrap">
       <a class="brand" href="#/"><span class="mark">✓</span><span class="brand-name">GroundTruth</span></a>
@@ -23,16 +22,24 @@
         <a href="#/upload" data-nav="upload">Try your own</a>
         <a href="#/how" data-nav="how" class="hide-sm">How it works</a>
       </nav>
-      <div class="right"><a class="btn small" href="https://github.com/compiler-aditya/groundtruth" target="_blank" rel="noopener">GitHub ↗</a></div>
+      <div class="right">
+        <a class="gh" href="https://github.com/compiler-aditya/groundtruth" target="_blank" rel="noopener">GitHub ↗</a>
+        <button class="btn small primary" data-act="replay">▶ Watch a run</button>
+      </div>
     </div>
   </header>
   <main id="app" class="wrap"></main>
   <footer class="foot">
-    <div class="fl" style="max-width:1080px;margin:0 auto">
-      <span>Built during the Meta Global AI Developer Hackathon with Muse Wonder, Muse Spark 1.3, Muse Spark Open and SAM 3.1.
-        Verdicts are computed in code from the models' measurements; drafts are for an engineer to review.
-        Sample media belongs to its authors: <a href="https://github.com/compiler-aditya/groundtruth/blob/main/samples/real/SOURCES.md" target="_blank" rel="noopener">credits and licences</a>.</span>
-      <span class="mono">[ GROUNDTRUTH · 2026 ]</span>
+    <div class="wrap">
+      <div class="titleblock">
+        <div class="big"><small>Project</small><b>GroundTruth</b><span>From floor plan to verified site</span></div>
+        <div><small>Built for</small><b>Meta Global AI Developer Hackathon</b><span>Oct 26 – Nov 4, 2026</span></div>
+        <div><small>Models</small><b>Muse Wonder · Muse Spark 1.3 · Spark Open · SAM 3.1</b><span>Verdicts computed in code</span></div>
+        <div><small>Sheet</small><b>G-000</b><span>Rev A</span></div>
+      </div>
+      <p class="small">Drafts are for an engineer to review. Sample media belongs to its authors:
+        <a href="https://github.com/compiler-aditya/groundtruth/blob/main/samples/real/SOURCES.md" target="_blank" rel="noopener">credits and licences</a> ·
+        <a href="https://github.com/compiler-aditya/groundtruth" target="_blank" rel="noopener">source on GitHub</a></p>
     </div>
   </footer>
   <div id="lightbox" hidden><div><img alt=""><p></p></div></div>
