@@ -112,13 +112,6 @@ function table(rows, cols) {
 }
 
 /* ---------------- home ---------------- */
-const FLOW = [
-  ["📋", "Read the design package", "Quantities, equipment schedule, drawing register and site notes.", []],
-  ["🧠", "Plan the checks", "Muse Wonder works out which capture proves which design item, then calls the tools in parallel.", ["Muse Wonder"]],
-  ["📷", "Measure", "SAM 3.1 counts, Spark 1.3 reads plates and drawings, Spark Open hears and watches the walk.", ["SAM 3.1", "Spark 1.3", "Spark Open"]],
-  ["⚖️", "Decide in code", "Each verdict comes from the measurement and the design tolerance, not from a model's opinion.", []],
-  ["📝", "Report with evidence", "Every failure becomes a finding with its images and a drafted NCR, RFI or observation report.", ["Spark 1.3"]],
-];
 const RULES = [
   ["The model chooses the checks; code decides the verdict.", "Counts are compared with the design quantity and tolerance, title blocks with the register, plates field by field with the schedule."],
   ["Findings can't be invented.", "A finding must point at a measurement that failed, and takes its facts and images from it. The agent can't finish while a failure has no finding."],
@@ -126,79 +119,99 @@ const RULES = [
   ["Drafts must stay on topic.", "A draft has to name its subject and its measured numbers, or it is written again. Twice wrong, and a plain template is used and labelled."],
 ];
 const MODELS = [
-  ["Muse Wonder", "The agent: plans, calls up to 14 tools in one turn, follows up, records findings."],
-  ["SAM 3.1", "Counts modules, tables and objects on drone stills, and inside the region a narrated claim is about."],
-  ["Muse Spark 1.3", "Reads nameplates and title blocks, counts drawing symbols and module grids, judges claims on stills, drafts documents."],
-  ["Muse Spark Open", "On Baseten: hears and watches each walkthrough clip, and flags where the narration and the picture disagree."],
+  ["muse-wonder", "The agent: plans the site check, designs and improves floor plans, calls up to 14 tools in one turn."],
+  ["sam-3.1", "Counts modules, tables and objects on drone stills, and inside the region a narrated claim is about."],
+  ["muse-spark-1.3", "Reads nameplates and title blocks, counts drawing symbols and module grids, judges claims on stills, drafts documents."],
+  ["muse-spark-open", "On Baseten: hears and watches each walkthrough clip, and flags where the narration and the picture disagree."],
 ];
+// 5x5 pixel icons: o = accent, m = light accent, anything else = grey
+const ICONS = { design: "ooooo" + "o...o" + "o.mmo" + "o...o" + "ooooo", simulate: "..o.." + ".mmm." + "omomo" + ".mmm." + "..o..",
+  verify: "....o" + "...om" + "o.om." + ".om.." + "....." };
+const dots = (p) => `<div class="dots" aria-hidden="true">${[...p.padEnd(25, ".").slice(0, 25)].map((c) => `<i class="${c === "o" ? "on" : c === "m" ? "mid" : ""}"></i>`).join("")}</div>`;
+const win = (label, body, cls = "") => `<div class="win ${cls}"><div class="win-bar"><i></i><i></i><i></i><span class="lbl">[ ${esc(label)} ]</span></div><div class="win-body">${body}</div></div>`;
 
 async function renderHome() {
-  if (!S.pkg) app.innerHTML = `<p class="muted" style="padding:60px 0">Loading…</p>`;
+  if (!S.pkg) app.innerHTML = `<p class="muted" style="padding:80px 0">Loading…</p>`;
   await load();
   const p = S.pkg, live = liveReady();
   app.innerHTML = `
   <section class="hero">
-    <div>
-      <div class="eyebrow">Construction QA agent, built on Meta's models</div>
-      <h1>Check the site against the design, with evidence.</h1>
-      <p class="lead">Give GroundTruth a project's design package and the photos and videos the site already produces. An agent works out
-        what to check, measures it with Meta's vision models, and hands back every problem with its proof and a drafted report.</p>
-      <div class="ctas">
-        <button class="btn primary big" data-act="live" ${live ? "" : "disabled"}>▶ Watch it run live</button>
-        <button class="btn big" data-act="replay">Play a recorded run</button>
-      </div>
-      <p class="small muted" style="margin:12px 0 0">Live: Muse Wonder makes every decision in real time, in about a minute.
-        Recorded: a real run played back, no API calls. Or <a href="#/upload">try your own photos</a>.</p>
+    <div class="hero-grid"></div><div class="hero-glow"></div>
+    <span class="tag" style="left:14px;top:16px">[ SITE ]</span><span class="tag" style="right:14px;top:16px">[ DESIGN ]</span>
+    <span class="tag" style="left:14px;bottom:24px">[ .NCR ]</span><span class="tag" style="right:14px;bottom:24px">[ VERIFIED ]</span>
+    <span class="spark" style="left:calc(50% - 404px);top:105px">✦</span><span class="spark" style="left:calc(50% + 358px);top:105px">✦</span>
+    <div class="hero-in">
+      <a class="badge" href="#/how">Muse Wonder · Muse Spark · SAM 3.1 <span class="go">›</span></a>
+      <h1>From floor plan<br><span class="hl">to verified site</span></h1>
+      <p class="lead">Design a building with an AI that measures every step, simulate how it lives, then check the built site against it.
+        Every finding comes with its evidence and a drafted report.</p>
+      <div class="ctas"><button class="btn primary big" data-act="live" ${live ? "" : "disabled"}>▶ Watch the site check live</button>
+        <button class="btn big" data-act="replay">Play a recorded run</button></div>
       ${live ? "" : `<p class="note-off">Live runs are off on this deployment (no API key). The recorded run still works.</p>`}
-      <div class="proof">
-        <div><b>9 / 9</b>planted problems found</div>
-        <div><b>7 / 7</b>correct items passed</div>
-        <div><b>≈ 1 min</b>and $0.44 per live run</div>
-        <div><b>4</b>Meta models</div>
-      </div>
+      <form class="ask" id="ask">
+        <textarea id="ask-text" rows="2" maxlength="800" aria-label="Describe a building to design"
+          placeholder="Describe a building to design… e.g. a three-bedroom house of about 110 m² with an open kitchen"></textarea>
+        <div class="bar"><span>✦ Muse Wonder lays it out, room by room</span><button class="btn primary small" type="submit" ${live ? "" : "disabled"}>Design</button></div>
+      </form>
     </div>
-    <div class="how" aria-label="How it works">${FLOW.map(([ic, title, text, models], i) => `
-      <div class="step ${i === 1 ? "hl" : ""}"><div class="ic" aria-hidden="true">${ic}</div><div><b>${esc(title)}</b><span>${esc(text)}</span>
-        ${models.length ? `<div class="models">${models.map((m) => `<span class="chip ${i === 1 ? "accent" : "model"}">${esc(m)}</span>`).join("")}</div>` : ""}</div></div>`).join("")}
+  </section>
+  <div class="proof">
+    <div><b>9<span class="faint">/9</span></b>planted problems found</div>
+    <div><b>7<span class="faint">/7</span></b>correct items passed</div>
+    <div><b>≈1 min</b>and $0.44 per live site check</div>
+    <div><b><span class="hl">4</span></b>Meta models working together</div>
+  </div>
+  <section class="block" id="how">
+    <div class="center"><div class="eyebrow">How it works</div>
+      <h2 class="section">Design it, live in it,<br><span class="hl">then prove it was built right</span></h2>
+      <p class="lead-c">One plan from the first sketch to handover. The models propose and look; the code measures and decides.</p></div>
+    <div class="trio">
+      <div>${dots(ICONS.design)}<h3>Design</h3><p>Describe a building or draw it room by room. Muse Wonder lays out rooms, doors and windows; the code refuses overlaps and dead ends.</p>
+        <div class="models"><span class="chip model">muse-wonder</span></div><a class="go" href="#/plans">Open the studio ›</a></div>
+      <div>${dots(ICONS.simulate)}<h3>Simulate <span class="chip accent">NEW</span></h3><p>Sun through every window over a day, everyone's daily routes, room to move. Scored from the geometry, then improved by the AI.</p>
+        <div class="models"><span class="chip model">muse-wonder</span><span class="chip model">geometry</span></div><a class="go" href="#/plans">Simulate a plan ›</a></div>
+      <div>${dots(ICONS.verify)}<h3>Verify</h3><p>Drone stills, nameplate photos and a narrated phone walk checked against the design. Every failure becomes a finding with its proof.</p>
+        <div class="models"><span class="chip model">sam-3.1</span><span class="chip model">muse-spark-1.3</span><span class="chip model">spark-open</span></div>
+        <button class="go" data-act="live" ${live ? "" : "disabled"}>Watch it run live ›</button></div>
     </div>
   </section>
   ${p ? packageSection(p) : ""}
-  <section class="block" id="how">
-    <div class="eyebrow">How it works</div>
-    <h2 class="section">The model chooses what to check. Code decides the verdict.</h2>
-    <p class="muted" style="max-width:760px;margin:0 0 18px">Construction QA has to hold up in a dispute, so every number on a finding traces back to a
-      measurement, a model and an image. The agent's freedom is in planning and following up, not in deciding pass or fail.</p>
-    <div class="grid2">
-      <div class="panel"><h3 style="margin-top:0">Built to be checked</h3>
-        ${RULES.map(([b, t]) => `<p style="margin:0 0 12px"><b>${esc(b)}</b> <span class="muted">${esc(t)}</span></p>`).join("")}</div>
-      <div class="panel"><h3 style="margin-top:0">Meta's models, and what each one does</h3>
-        <div class="table-wrap"><table class="models-table">${MODELS.map(([m, t]) => `<tr><td>${esc(m)}</td><td>${esc(t)}</td></tr>`).join("")}</table></div>
-        <p class="small muted" style="margin:12px 0 0">What we measured about each model, including where it failed and how we worked around it, is in the
-          <a href="https://github.com/compiler-aditya/groundtruth#how-it-uses-metas-models-and-what-we-learned" target="_blank" rel="noopener">README</a>.</p></div>
+  <section class="block" id="rules">
+    <div class="center"><div class="eyebrow">Built to be checked</div>
+      <h2 class="section">The model chooses what to check.<br><span class="hl">Code decides the verdict.</span></h2>
+      <p class="lead-c">Construction QA has to hold up in a dispute, so every number traces back to a measurement, a model and an image.</p></div>
+    <div class="grid2" style="margin-top:36px">
+      ${win("rules", `<div class="rules">${RULES.map(([b, t]) => `<p><b>${esc(b)}</b><span class="muted">${esc(t)}</span></p>`).join("")}</div>`)}
+      ${win("models", `<div class="table-wrap"><table class="models-table">${MODELS.map(([m, t]) => `<tr><td>${esc(m)}</td><td>${esc(t)}</td></tr>`).join("")}</table></div>
+        <p class="small muted" style="margin:14px 0 0">What we measured about each model, including where it failed and how we worked around it, is in the
+        <a href="https://github.com/compiler-aditya/groundtruth#how-it-uses-metas-models-and-what-we-learned" target="_blank" rel="noopener">README ›</a></p>`)}
     </div>
   </section>`;
+  $("#ask").onsubmit = (e) => {
+    e.preventDefault();
+    const text = $("#ask-text").value.trim();
+    if (text.length < 3) return $("#ask-text").focus();
+    window.GTPlans.designFrom(text);
+  };
 }
 
 function packageSection(p) {
   const n = (t) => p.captures.filter((c) => c.type === t).length;
   const problems = p.planted ? KINDS.reduce((sum, k) => sum + p.planted[k].length, 0) : 0;
-  const tabs = [["captures", `What the site captured (${p.captures.length})`], ["design", "The design to check against"],
-    ...(p.planted ? [["key", "Answer key (spoiler)"]] : [])];
-  return `<section class="block panel" id="package">
+  const tabs = [["captures", `What the site captured (${p.captures.length})`], ["design", "The design"], ...(p.planted ? [["key", "Answer key"]] : [])];
+  return `<section class="block" id="package">
     <div class="pkg-head">
-      <div><div class="eyebrow">The demo package</div><h2 class="section">${esc(p.name)}</h2>
-        <p class="muted" style="margin:0;max-width:760px">${esc(p.description)}</p></div>
-      <div class="facts-row">
-        <span class="chip">${n("drone_still")} drone stills</span><span class="chip">${n("nameplate_photo")} nameplates</span>
-        <span class="chip">${n("drawing_sheet")} drawings</span><span class="chip">${n("walkthrough_video")} narrated walk</span>
-      </div>
-    </div>
-    <div class="tabs" role="tablist" id="home-tabs">${tabs.map(([k, label]) =>
-      `<button role="tab" data-tab="${k}" class="${k === "key" ? "spoiler " : ""}${S.homeTab === k ? "on" : ""}">${esc(label)}</button>`).join("")}</div>
-    <div id="tab-body">${homeTab(p)}</div>
-    <div class="cta-row"><span class="muted">${problems ? `${problems} problems are hidden in this package. Can the agent find them?` : ""}</span>
+      <div><div class="eyebrow">Live demo · site check</div>
+        <h2 class="section">${problems || "Some"} problems are hidden on this site.<br><span class="hl">Can the agent find them?</span></h2>
+        <p class="lead-c">A solar site's design package (quantities, an equipment schedule, a drawing register) against what the site captured:
+          ${n("drone_still")} drone stills, ${n("nameplate_photo")} equipment nameplates, ${n("drawing_sheet")} drawing sheets and a narrated phone walk.</p></div>
       <div class="ctas"><button class="btn primary" data-act="live" ${liveReady() ? "" : "disabled"}>▶ Run it live</button>
-      <button class="btn" data-act="replay">Play the recorded run</button></div></div>
+        <button class="btn" data-act="replay">Play the recorded run</button></div>
+    </div>
+    ${win(`${p.id || "demo"} · ${p.captures.length} captures · 3 design documents`, `
+      <div class="tabs" role="tablist" id="home-tabs">${tabs.map(([k, label]) =>
+        `<button role="tab" data-tab="${k}" class="${k === "key" ? "spoiler " : ""}${S.homeTab === k ? "on" : ""}">${esc(label)}</button>`).join("")}</div>
+      <div id="tab-body">${homeTab(p)}</div>`)}
   </section>`;
 }
 
