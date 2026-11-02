@@ -41,7 +41,7 @@ Generated layouts are usually judged by eye.
   - Routines come from the rooms present:
     - homes: residents from bedroom to bathroom, kitchen, living room and out, and back in the evening, plus a guest visiting the living room and WC;
     - clinics and offices: a visitor through reception, waiting and the treatment or meeting room, and staff to their room, kitchen and WC.
-  - Points are taken off for trips that can't be made, guests crossing a bedroom, and routes much longer than the straight line.
+  - Points are taken off for trips that can't be made (30 each), anyone crossing a bedroom that isn't theirs (15 each), and routes more than twice the straight-line distance on average (a hallway plan is usually 1.5–1.9).
 - **Space.** Furniture cover per room, whether a 1.5 m turning circle fits in hallways, bathrooms and living rooms, and door widths.
 
 ## Built in this order

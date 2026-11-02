@@ -11,7 +11,7 @@ from __future__ import annotations
 import heapq
 import math
 
-from .floorplan import EPS, NEEDS_WINDOW, area, check, connects, opening_span, room_by_id
+from .floorplan import NEEDS_WINDOW, area, check, connects, opening_span, room_by_id
 
 SILL, HEAD = 0.9, 2.1  # window sill and head heights, m
 DAYS = {"winter": 355, "equinox": 80, "summer": 172}  # 21 December, 21 March, 21 June
@@ -139,3 +139,316 @@ def daylight_score(plan: dict, sun: dict) -> dict:
             notes.append(f"{r['name']} has windows of {m['glazing_ratio'] * 100:.0f}% of its floor area (10% is a common rule of thumb)")
     score = round(sum(x["score"] for x in rows) / len(rows)) if rows else None
     return {"score": score, "rooms": rows, "notes": notes}
+
+
+# ---------------------------------------------------------------- movement
+
+CELL = 0.15          # walking grid, m
+WALL_GAP = 0.2       # people keep this far from walls
+FURNITURE_GAP = 0.1  # and this far from furniture
+DOOR_REACH = 0.45    # a door or passage lets people through this far either side of its wall
+TURN_RADIUS = 0.75   # a 1.5 m wheelchair turning circle
+
+
+def footprint(item: dict) -> tuple[float, float, float, float]:
+    w, h = (item["h"], item["w"]) if int(item.get("rot", 0)) % 180 else (item["w"], item["h"])
+    return item["cx"] - w / 2, item["cy"] - h / 2, item["cx"] + w / 2, item["cy"] + h / 2
+
+
+class Grid:
+    """Walkable cells of a plan: inside rooms away from walls, through doors and passages, in front of the entrance,
+    and (optionally) around furniture."""
+
+    def __init__(self, plan: dict, furniture: bool = True) -> None:
+        rooms = plan["rooms"]
+        self.x0 = min(r["x"] for r in rooms) - 1.6
+        self.y0 = min(r["y"] for r in rooms) - 1.6
+        self.nx = int((max(r["x"] + r["w"] for r in rooms) + 1.6 - self.x0) / CELL) + 1
+        self.ny = int((max(r["y"] + r["h"] for r in rooms) + 1.6 - self.y0) / CELL) + 1
+        n = self.nx * self.ny
+        self.ok, self.owner, self.item = bytearray(n), [None] * n, [None] * n
+        doors = [(op, opening_span(plan, op), connects(plan, op)) for op in plan["openings"] if op["type"] in ("door", "opening")]
+        doors = [(op, sp, conn) for op, sp, conn in doors if sp]
+        self.entrances = [(op, sp) for op, sp, conn in doors if op["type"] == "door" and "outside" in conn]
+        for i in range(n):
+            x, y = self.xy(i)
+            room = next((r for r in rooms if r["x"] < x < r["x"] + r["w"] and r["y"] < y < r["y"] + r["h"]), None)
+            if room:
+                self.owner[i] = room["id"]
+                if min(x - room["x"], room["x"] + room["w"] - x, y - room["y"], room["y"] + room["h"] - y) >= WALL_GAP:
+                    self.ok[i] = 1
+            for op, (o, c, a, b), conn in doors:
+                along, across = (x, y) if o == "h" else (y, x)
+                if a + 0.08 <= along <= b - 0.08 and abs(across - c) <= DOOR_REACH and (room or "outside" in conn):
+                    self.ok[i] = 1
+                    self.owner[i] = self.owner[i] or "outside"
+            if not room:
+                for op, (o, c, a, b) in self.entrances:
+                    nvec = OUTWARD[op["side"]]
+                    along, out = ((x, (y - c) * nvec[1]) if o == "h" else (y, (x - c) * nvec[0]))
+                    if a - 0.3 <= along <= b + 0.3 and 0 < out <= 1.5:
+                        self.ok[i], self.owner[i] = 1, "outside"
+        if furniture:
+            for it in plan.get("items", []):
+                x0, y0, x1, y1 = footprint(it)
+                for i in self.cells_in(x0 - FURNITURE_GAP, y0 - FURNITURE_GAP, x1 + FURNITURE_GAP, y1 + FURNITURE_GAP):
+                    self.ok[i], self.item[i] = 0, it["id"]
+
+    def xy(self, i: int) -> tuple[float, float]:
+        return self.x0 + (i // self.ny + 0.5) * CELL, self.y0 + (i % self.ny + 0.5) * CELL
+
+    def cells_in(self, x0: float, y0: float, x1: float, y1: float):
+        for ix in range(max(0, int((x0 - self.x0) / CELL)), min(self.nx, int((x1 - self.x0) / CELL) + 1)):
+            for iy in range(max(0, int((y0 - self.y0) / CELL)), min(self.ny, int((y1 - self.y0) / CELL) + 1)):
+                x, y = self.x0 + (ix + 0.5) * CELL, self.y0 + (iy + 0.5) * CELL
+                if x0 <= x <= x1 and y0 <= y <= y1:
+                    yield ix * self.ny + iy
+
+    def spot(self, owner: str, x: float, y: float) -> int | None:
+        """The walkable cell of this room (or "outside") closest to a point."""
+        best, dist = None, 1e9
+        for i in range(len(self.ok)):
+            if self.ok[i] and self.owner[i] == owner:
+                cx, cy = self.xy(i)
+                d = (cx - x) ** 2 + (cy - y) ** 2
+                if d < dist:
+                    best, dist = i, d
+        return best
+
+    def route(self, a: int, b: int) -> list[int] | None:
+        """Shortest walk between two cells (A*, eight directions, no cutting corners)."""
+        ny, ok = self.ny, self.ok
+        bx, by = divmod(b, ny)
+        def h(i):  # noqa: E306
+            dx, dy = abs(i // ny - bx), abs(i % ny - by)
+            return max(dx, dy) + 0.4142 * min(dx, dy)
+        g, came, heap = {a: 0.0}, {}, [(h(a), a)]
+        while heap:
+            _, i = heapq.heappop(heap)
+            if i == b:
+                path = [i]
+                while i in came:
+                    i = came[i]
+                    path.append(i)
+                return path[::-1]
+            ix, iy = divmod(i, ny)
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+                jx, jy = ix + dx, iy + dy
+                if not (0 <= jx < self.nx and 0 <= jy < ny):
+                    continue
+                j = jx * ny + jy
+                if not ok[j] or (dx and dy and not (ok[ix * ny + jy] and ok[jx * ny + iy])):
+                    continue
+                cost = g[i] + (1.4142 if dx and dy else 1.0)
+                if cost < g.get(j, 1e18):
+                    g[j], came[j] = cost, i
+                    heapq.heappush(heap, (cost + h(j), j))
+        return None
+
+
+def _named(rooms: list[dict], *words: str) -> list[dict]:
+    return [r for r in rooms if any(w in r["name"].lower() for w in words)]
+
+
+def routines(plan: dict) -> list[dict]:
+    """Who moves where in a day, from the rooms present. "bath" stops are resolved to the nearest bathroom."""
+    rooms = plan["rooms"]
+    of = lambda kind: [r for r in rooms if r["type"] == kind]  # noqa: E731
+    beds, kitchen = of("bedroom"), (of("kitchen") or [None])[0]
+    living = (of("living") or of("dining") or [None])[0]
+    people = []
+    if beds:
+        for i, bed in enumerate(beds):
+            people.append({"name": f"Resident {i + 1}", "home": bed["id"], "role": "resident",
+                           "stops": [bed, "bath", kitchen, living, "outside", kitchen, living, "bath", bed]})
+        people.append({"name": "Guest", "role": "guest", "stops": ["outside", living or kitchen, "bath", living or kitchen, "outside"]})
+    else:
+        reception = (of("reception") or _named(rooms, "recep", "front"))[:1]
+        waiting = _named(rooms, "wait", "lobby")[:1]
+        staff = _named(rooms, "staff") or of("office")
+        main = [r for r in rooms if r["type"] in ("meeting", "office", "other", "retail", "living", "dining")
+                and r not in reception + waiting + staff[:1] and not _named([r], "store", "wc", "toilet")]
+        visit = reception + waiting + main[:1] or sorted(rooms, key=area)[-1:]
+        people.append({"name": "Visitor", "role": "visitor", "stops": ["outside", *visit, "bath", "outside"]})
+        if staff or kitchen:
+            people.append({"name": "Staff", "role": "staff", "stops": ["outside", *staff[:1], kitchen, "bath", "outside"]})
+    for p in people:
+        stops = [s for s in p["stops"] if s]
+        p["stops"] = [s for k, s in enumerate(stops) if k == 0 or s != stops[k - 1]]
+    return people
+
+
+def movement(plan: dict) -> dict:
+    """Walk everyone's day on the grid: metres walked, rooms crossed, trips that can't be made and why."""
+    if not plan["rooms"]:
+        return {"people": [], "notes": [], "score": None}
+    grid, bare = Grid(plan), None
+    names = {r["id"]: r["name"] for r in plan["rooms"]} | {"outside": "outside"}
+    rooms = {r["id"]: r for r in plan["rooms"]}
+    item_name = {it["id"]: it["type"].replace("_", " ") for it in plan.get("items", [])}
+    entrance = grid.entrances[0] if grid.entrances else None
+
+    def target(stop) -> tuple[str, int | None]:
+        if stop == "outside":
+            if not entrance:
+                return "outside", None
+            op, (o, c, a, b) = entrance
+            n, mid = OUTWARD[op["side"]], (a + b) / 2
+            x, y = (mid + 0, c + n[1] * 1.2) if o == "h" else (c + n[0] * 1.2, mid)
+            return "outside", grid.spot("outside", x, y)
+        return stop["id"], grid.spot(stop["id"], stop["x"] + stop["w"] / 2, stop["y"] + stop["h"] / 2)
+
+    cache: dict = {}
+
+    def walk(a: int | None, b: int | None):
+        if a is None or b is None:
+            return None
+        if (a, b) not in cache:
+            cache[(a, b)] = grid.route(a, b)
+        return cache[(a, b)]
+
+    def length(path: list[int]) -> float:
+        total = 0.0
+        for i, j in zip(path, path[1:]):
+            total += CELL * (1.4142 if abs(i - j) not in (1, grid.ny) else 1.0)
+        return total
+
+    baths = [r for r in plan["rooms"] if r["type"] == "bathroom"]
+    people, notes, blocked, privacy, detours = [], [], 0, 0, []
+    for person in routines(plan):
+        legs, day = [], 0.0
+        stops = person["stops"]
+        for k in range(len(stops) - 1):
+            frm, to = stops[k], stops[k + 1]
+            src_id, a = target(frm) if frm != "bath" else (None, None)
+            if frm == "bath":
+                src_id, a = legs[-1]["to_id"], legs[-1]["_end"]
+            if to == "bath":
+                options = [(target(bt), bt) for bt in baths]
+                options = [((bid, cell), bt) for (bid, cell), bt in options if walk(a, cell)]
+                if not options and baths:
+                    options = [(target(baths[0]), baths[0])]
+                if not options:
+                    continue
+                (to_id, b), _ = min(options, key=lambda o: len(walk(a, o[0][1]) or []) or 1e9)
+            else:
+                to_id, b = target(to)
+            path = walk(a, b)
+            leg = {"from": names.get(src_id, "?"), "to": names.get(to_id, "?"), "to_id": to_id, "_end": b, "ok": bool(path)}
+            if path:
+                pts, crossed = [], []
+                for i in path:
+                    x, y = grid.xy(i)
+                    pts.append([r2(x), r2(y)])
+                    owner = grid.owner[i]
+                    if owner and (not crossed or crossed[-1] != owner):
+                        crossed.append(owner)
+                through = [o for o in crossed[1:-1] if o not in (src_id, to_id, "outside")]
+                leg.update(path=_simplify(pts), length_m=r2(length(path)), through=[names[o] for o in through])
+                day += length(path)
+                ax, ay = grid.xy(a)
+                bx, by = grid.xy(b)
+                straight = math.hypot(bx - ax, by - ay)
+                if straight > 1.5:
+                    detours.append(length(path) / straight)
+                for o in through:
+                    room = rooms.get(o)
+                    if room and room["type"] == "bedroom" and o != person.get("home"):
+                        privacy += 1
+                        notes.append(f"{person['name']} walks through {room['name']} on the way from {leg['from']} to {leg['to']}")
+            else:
+                blocked += 1
+                bare = bare or Grid(plan, furniture=False)
+                free_path = bare.route(a, b) if a is not None and b is not None else None
+                culprits = sorted({item_name[grid.item[i]] for i in free_path or [] if grid.item[i] in item_name})
+                why = (f"the {', '.join(culprits)} {'is' if len(culprits) == 1 else 'are'} in the way" if free_path and culprits
+                       else "there is no door on the way" if a is not None and b is not None else "there is no entrance")
+                leg["why"] = why
+                notes.append(f"{person['name']} can't get from {leg['from']} to {leg['to']}: {why}")
+            legs.append(leg)
+        for leg in legs:
+            leg.pop("_end", None)
+        people.append({"name": person["name"], "role": person["role"], "legs": legs, "daily_m": r2(day)})
+    detour = sum(detours) / len(detours) if detours else 1.0
+    if detour > 2.0:  # a hallway plan is usually 1.5-1.9: rooms are entered from the corridor, not straight across
+        notes.append(f"Routes are on average {detour:.1f} times the straight-line distance: people walk the long way round")
+    score = max(0, 100 - 30 * blocked - 15 * privacy - (0 if detour <= 2.0 else 10 if detour <= 2.6 else 20))
+    return {"people": people, "notes": list(dict.fromkeys(notes)), "score": score, "mean_detour": r2(detour), "grid_m": CELL}
+
+
+def _simplify(points: list[list[float]]) -> list[list[float]]:
+    """Drop points that continue in the same direction."""
+    out = points[:1]
+    for k in range(1, len(points) - 1):
+        a, b, c = out[-1], points[k], points[k + 1]
+        if (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]) != 0:
+            out.append(b)
+    return out + points[-1:] if len(points) > 1 else out
+
+
+# ---------------------------------------------------------------- space
+
+def _clearance(room: dict, items: list[dict], step: float = 0.1) -> float:
+    """The radius of the largest circle that fits in the room clear of its walls and furniture (sampled every 10 cm)."""
+    boxes = [footprint(it) for it in items]
+    best, y = 0.0, room["y"] + step / 2
+    while y < room["y"] + room["h"]:
+        x = room["x"] + step / 2
+        while x < room["x"] + room["w"]:
+            d = min(x - room["x"], room["x"] + room["w"] - x, y - room["y"], room["y"] + room["h"] - y)
+            for x0, y0, x1, y1 in boxes:
+                d = min(d, math.hypot(max(x0 - x, 0, x - x1), max(y0 - y, 0, y - y1)))
+            best = max(best, d)
+            x += step
+        y += step
+    return best
+
+
+def space(plan: dict) -> dict:
+    """Furniture cover, a wheelchair turning circle in the rooms that need one, and door widths."""
+    if not plan["rooms"]:
+        return {"rooms": [], "notes": [], "score": None}
+    rows, notes, crowded, no_turn = [], [], 0, 0
+    for r in plan["rooms"]:
+        cover = 0.0
+        for it in plan.get("items", []):
+            x0, y0, x1, y1 = footprint(it)
+            w, h = min(x1, r["x"] + r["w"]) - max(x0, r["x"]), min(y1, r["y"] + r["h"]) - max(y0, r["y"])
+            cover += w * h if w > 0 and h > 0 else 0
+        cover = cover / area(r)
+        clearance = _clearance(r, plan.get("items", []))
+        turn = clearance >= TURN_RADIUS - 1e-6
+        rows.append({"room": r["name"], "id": r["id"], "furniture_cover": r2(cover), "turning_circle": turn, "clearance_m": r2(clearance)})
+        if cover > 0.55:
+            crowded += 1
+            notes.append(f"Furniture covers {cover * 100:.0f}% of {r['name']}")
+        if r["type"] in ("bathroom", "hallway", "living", "kitchen") and not turn:
+            no_turn += 1
+            notes.append(f"A 1.5 m wheelchair turning circle doesn't fit in {r['name']}")
+    narrow = [w for w in check(plan)["warnings"] if "usual minimum" in w]
+    notes += narrow
+    score = max(0, 100 - 10 * crowded - 8 * no_turn - 5 * len(narrow))
+    return {"rooms": rows, "notes": notes, "score": score}
+
+
+# ---------------------------------------------------------------- all together
+
+def simulate(plan: dict, latitude: float = 28.6, day: int = DAYS["winter"], north: float = 0.0) -> dict:
+    """The whole simulation with its three scores (each 0-100, or None when it doesn't apply) and their mean."""
+    sun = sun_day(plan, latitude, day, north)
+    daylight = daylight_score(plan, sun)
+    moves = movement(plan) if plan["rooms"] else {"people": [], "notes": [], "score": None}
+    room = space(plan)
+    scores = {"daylight": daylight["score"], "movement": moves["score"], "space": room["score"]}
+    present = [v for v in scores.values() if v is not None]
+    return {"sun": sun, "daylight": daylight, "movement": moves, "space": room, "scores": scores,
+            "overall": round(sum(present) / len(present)) if present else None, "plan_check": check(plan)}
+
+
+def summary(result: dict) -> dict:
+    """The simulation without the drawing data, for the design assistant."""
+    return {"scores": result["scores"], "overall": result["overall"],
+            "daylight": {"rooms": [{k: x[k] for k in ("room", "sun_hours", "glazing_ratio")} for x in result["daylight"]["rooms"]], "notes": result["daylight"]["notes"]},
+            "movement": {"daily_m": {p["name"]: p["daily_m"] for p in result["movement"]["people"]}, "notes": result["movement"]["notes"],
+                         "mean_detour": result["movement"].get("mean_detour")},
+            "space": {"notes": result["space"]["notes"]}, "plan_errors": result["plan_check"]["errors"]}
