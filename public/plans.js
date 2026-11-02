@@ -1176,7 +1176,7 @@ window.GTPlans = (() => {
     return `<g pointer-events="none"><circle cx="${cx}" cy="${cy}" r="${R}" fill="#fff" fill-opacity=".9" stroke="#bdb9ae"/>
       <line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}" stroke="${INK}" stroke-width="2"/><text x="${nx}" y="${ny - 4}" text-anchor="middle" font-size="12" font-weight="700" fill="${INK}">N</text>
       ${sample ? `<circle cx="${sx}" cy="${sy}" r="8" fill="#ffc107" stroke="#e8a900"/>` : ""}
-      <text x="${cx}" y="${cy + R + 30}" text-anchor="middle" font-size="11.5" fill="${INK}">${sample ? `${hhmm(sample.hour)} · sun ${Math.round(sample.elevation)}°, ${compass(sample.azimuth)}` : "night"}</text></g>`;
+      <text x="${W - 12}" y="${cy + R + 30}" text-anchor="end" font-size="11.5" fill="${INK}" stroke="${PAPER}" stroke-width="3" paint-order="stroke">${sample ? `${hhmm(sample.hour)} · sun ${Math.round(sample.elevation)}°, ${compass(sample.azimuth)}` : "night"}</text></g>`;
   }
 
   function placeWalkers() {

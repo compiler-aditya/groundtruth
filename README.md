@@ -70,6 +70,19 @@ The loop is [gt/planner.py](gt/planner.py); the browser streams it from `/api/pl
 | Then "add a home office of about 9 m² next to the living room" | 7 rooms, 60.1 m², existing rooms unchanged | 0 | 22 s | $0.08 |
 | "A small dental clinic with a reception, a waiting room, two treatment rooms, a staff room, a WC and a store" | 8 rooms, 80.3 m², 0 errors, 0 warnings, typed as a clinic | 0 | 49 s | $0.20 |
 
+**Simulate: live in the plan before it's built.** Floor plan tools show how a plan looks; GroundTruth's Simulate mode shows how it works, room by room ([docs/simulation.md](docs/simulation.md), [gt/simulate.py](gt/simulate.py)):
+- **Sun.** Patches of sunlight cross the floor through each window over a day, at the chosen city and date (21 December, March or June), with the plan turned to its real orientation. Each room's hours of direct sun are counted.
+- **A day of moving around.** Residents, a guest, or a clinic's visitors and staff walk their routes through doors and around furniture on a 15 cm grid. Metres walked, routes that cross someone's bedroom and trips that are blocked (and by what) are reported.
+- **Space.** Furniture cover, a 1.5 m wheelchair turning circle, rooms small for their use, and narrow doors.
+- **Scores.** Daylight, movement and space, each 0–100, are measured from the geometry (about 50 ms per plan, no model calls). They are rules of thumb for comparing options, not a building-code check.
+
+**Improve with AI.** Give a goal ("more sun in the bedrooms and the living room") and Muse Wonder changes the plan with a `simulate` tool. It re-runs the simulation after each group of changes and undoes what scores worse. The code refuses to let it finish if the overall score fell, and you see before and after scores, then keep or undo.
+
+In a live run on the AI-designed three-bedroom house (Delhi, 21 December), Wonder:
+- swapped a north-facing bedroom with the sunny kitchen and added west and south windows;
+- saw the space score drop because the swapped bedroom was only 2.2 m wide, and widened it to 3.0 m;
+- finished with daylight 79 → 90 and overall 90 → 94, in 15 turns, 94 s, $0.58.
+
 What comes next is in [docs/floor-plan-studio.md](docs/floor-plan-studio.md): reading a photo of a sketch, plan reviews with proposals to accept or reject, architect and client editing the same plan, and issued plans feeding GroundTruth's checks. The editor is [public/plans.js](public/plans.js).
 
 ## Tests
