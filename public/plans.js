@@ -442,12 +442,17 @@ window.GTPlans = (() => {
     Object.assign(E, { plan, sel: null, tool: "select", undo: [], redo: [], drag: null, hover: null, ghost: null, guides: [], view: null, flash: new Set(),
       assist: { open: E.openAssist, running: false, mode: plan.rooms.length ? "edit" : "new", text: "", feed: [], result: null, error: null } });
     E.openAssist = false;
+    stopSim();
+    E.mode = "design";
+    E.sim = { result: null, stale: true, loading: false, error: null, t: 0, season: "winter", tracks: [], walking: false, sunTimer: 0, walkFrame: 0 };
+    plan.site = plan.site || defaultSite();
     app.innerHTML = `
     <div class="pe" id="plan-editor">
       <div class="pe-top">
         <a class="btn small" href="#/plans" title="All plans">←</a>
         <input class="pe-name" id="pe-name" value="${esc(plan.name)}" aria-label="Plan name" maxlength="80">
         <select id="pe-kind" aria-label="Building type">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${plan.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select>
+        <div class="pe-seg pe-mode" id="pe-mode"><button data-pact="mode" data-mode="design" class="on">Design</button><button data-pact="mode" data-mode="simulate">▶ Simulate</button></div>
         <span class="pe-status small muted" id="pe-status"></span>
         <span class="pe-spacer"></span>
         <button class="btn small primary" data-pact="assist" title="Describe what you want; Muse Wonder lays it out">✨ Design with AI</button>
@@ -616,7 +621,7 @@ window.GTPlans = (() => {
 
   function onPointerDown(ev) {
     if (ev.button !== 0 && ev.button !== 1) return;
-    if (E.assist.running) { E.drag = { mode: "pan", start: toWorld(ev), view: { ...E.view } }; return; }
+    if (E.assist.running || E.mode === "simulate") { E.drag = { mode: "pan", start: toWorld(ev), view: { ...E.view } }; return; }
     try { $("#pc").setPointerCapture(ev.pointerId); } catch { /* synthetic events have no capturable pointer */ }
     const p = toWorld(ev);
     if (ev.button === 1 || E.space) { E.drag = { mode: "pan", start: p, view: { ...E.view } }; return; }
@@ -794,7 +799,7 @@ window.GTPlans = (() => {
   document.addEventListener("keydown", (e) => {
     if (!$("#plan-editor")) return;
     const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || "");
-    if (E.assist.running && !typing) return;
+    if ((E.assist.running || E.mode === "simulate") && !typing) return;
     const mod = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
     if (mod && (key === "z" || key === "y")) {
       if (typing) return;
@@ -887,6 +892,7 @@ window.GTPlans = (() => {
   }
 
   function changed(redraw = true, sideToo = false) {
+    if (E.sim) E.sim.stale = true;
     clearTimeout(E.saveTimer);
     E.saveTimer = setTimeout(() => { E.savedOk = savePlan(E.plan); paintStatus(); }, 400);
     if (redraw) render(sideToo);
@@ -903,9 +909,13 @@ window.GTPlans = (() => {
     const { W, H } = canvasSize();
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     svg.setAttribute("class", `tool-${E.tool}${E.drag?.mode === "pan" ? " panning" : ""}`);
-    svg.innerHTML = `<rect width="${W}" height="${H}" fill="${PAPER}"/>` + drawPlan(E.plan, E.view, { width: W, height: H, grid: true, overlay }) + scaleBar(W, H);
+    const sim = E.mode === "simulate";
+    svg.innerHTML = `<rect width="${W}" height="${H}" fill="${PAPER}"/>` + drawPlan(E.plan, E.view, { width: W, height: H, grid: true, overlay: sim ? simOverlay : overlay })
+      + scaleBar(W, H) + (sim ? simHud(W) : "");
+    if (sim) placeWalkers();
     $("#pe-scale").textContent = `${Math.round(E.view.s)} px/m`;
-    $("#pe-hint").textContent = E.drag ? "" : HINTS[E.tool] || "";
+    $("#pe-hint").textContent = E.drag ? "" : E.mode === "simulate" ? "Simulation: drag to pan, scroll to zoom. Switch back to Design to edit." : HINTS[E.tool] || "";
+    $$("#pe-mode button").forEach((b) => b.classList.toggle("on", b.dataset.mode === E.mode));
     paintTools();
     paintSide(sideToo);
     paintStatus();
@@ -920,7 +930,8 @@ window.GTPlans = (() => {
 
   function paintTools() {
     const box = $("#pe-tools");
-    const html = TOOLS.map(([id, label, key, ic]) => `<button class="pe-tool ${E.tool === id ? "on" : ""}" data-pact="tool" data-tool="${id}" title="${label} (${key})"
+    const off = E.mode === "simulate" ? "disabled" : "";
+    const html = TOOLS.map(([id, label, key, ic]) => `<button class="pe-tool ${E.tool === id && !off ? "on" : ""}" ${off} data-pact="tool" data-tool="${id}" title="${label} (${key})"
       aria-label="${label}" aria-pressed="${E.tool === id}">${ic}<span>${key}</span></button>`).join("") +
       `<span class="pe-sep"></span><button class="pe-tool" data-pact="undo" title="Undo (⌘Z)" aria-label="Undo" ${E.undo.length ? "" : "disabled"}>${icon(`<path d="M7 5L3.5 8.5 7 12"/><path d="M4 8.5h8a4 4 0 010 8H9"/>`)}</button>
       <button class="pe-tool" data-pact="redo" title="Redo (⇧⌘Z)" aria-label="Redo" ${E.redo.length ? "" : "disabled"}>${icon(`<path d="M13 5l3.5 3.5L13 12"/><path d="M16 8.5H8a4 4 0 000 8h3"/>`)}</button>`;
@@ -932,17 +943,22 @@ window.GTPlans = (() => {
   function paintSide(force) {
     const side = $("#pe-side");
     if (!side) return;
-    const key = E.assist.open ? "assist" : E.sel ? `${E.sel.kind}:${E.sel.id}` : "plan";
+    const key = E.mode === "simulate" ? `sim:${E.sim.loading}:${!!E.sim.result}` : E.assist.open ? "assist" : E.sel ? `${E.sel.kind}:${E.sel.id}` : "plan";
     if (!force && key === side._key && side.contains(document.activeElement)) { paintLive(); return; }
     side._key = key;
     const s = selected();
-    side.innerHTML = E.assist.open ? assistPanel() : !s ? (E.tool === "furniture" ? palettePanel() : summaryPanel())
+    side.innerHTML = E.mode === "simulate" ? simPanel() : E.assist.open ? assistPanel() : !s ? (E.tool === "furniture" ? palettePanel() : summaryPanel())
       : E.sel.kind === "room" ? roomPanel(s) : E.sel.kind === "opening" ? openingPanel(s) : itemPanel(s);
     bindFields(side);
     paintLive();
   }
 
   function paintLive() {
+    if (E.mode === "simulate") {
+      const sample = E.sim.result?.sun.samples[E.sim.t], label = $(".sim-time .mono");
+      if (label && sample) label.textContent = hhmm(sample.hour);
+      return;
+    }
     const s = selected();
     $$("[data-live]", $("#pe-side")).forEach((el) => {
       if (el.dataset.live === "area" && s) el.textContent = `${fmtA(area(s))} (${fmtM(s.w)} × ${fmtM(s.h)})`;
@@ -1025,6 +1041,7 @@ window.GTPlans = (() => {
   }
 
   function bindFields(side) {
+    if (E.mode === "simulate") bindSim(side);
     const text = $("#assist-text", side);
     if (text) text.oninput = () => { E.assist.text = text.value; };
     const feed = $("#assist-feed", side);
@@ -1060,6 +1077,203 @@ window.GTPlans = (() => {
     } else s[prop] = el.value;
     render();
   }
+
+  /* ---------------- simulation ---------------- */
+  const CITIES = { Delhi: 28.6, Mumbai: 19.1, Bengaluru: 13.0, Singapore: 1.35, Dubai: 25.2, London: 51.5, Berlin: 52.5, "New York": 40.7,
+    "San Francisco": 37.8, Tokyo: 35.7, Sydney: -33.9, "São Paulo": -23.5 };
+  const ZONES = { Kolkata: "Delhi", Calcutta: "Delhi", Singapore: "Singapore", Dubai: "Dubai", London: "London", Berlin: "Berlin", New_York: "New York",
+    Los_Angeles: "San Francisco", Tokyo: "Tokyo", Sydney: "Sydney", Sao_Paulo: "São Paulo" };
+  const SEASONS = { winter: "21 December", equinox: "21 March", summer: "21 June" };
+  const FACES = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"];
+  const PEOPLE_COLORS = ["#2563eb", "#db2777", "#059669", "#d97706", "#7c3aed", "#0891b2"];
+  const WALK_SPEED = 9; // metres of route shown per second: about 7x walking pace
+  function defaultSite() {
+    let zone = "";
+    try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { /* no Intl */ }
+    const city = ZONES[zone.split("/").pop()] || "Delhi";
+    return { city, latitude: CITIES[city], north: 0 };
+  }
+  const hhmm = (h) => `${String(Math.floor(h)).padStart(2, "0")}:${String(Math.round((h % 1) * 60)).padStart(2, "0")}`;
+  const compass = (az) => FACES[Math.round(az / 45) % 8];
+  const tone = (v) => (v == null ? "" : v >= 80 ? "good" : v >= 60 ? "fair" : "poor");
+
+  async function runSim() {
+    const S = E.sim, planId = E.plan.id;
+    S.loading = true;
+    S.error = null;
+    render(true);
+    try {
+      const site = E.plan.site;
+      const res = await fetch("/api/plan/simulate", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan: { rooms: E.plan.rooms, openings: E.plan.openings, items: E.plan.items },
+          settings: { latitude: site.latitude, north: site.north, season: S.season } }) });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.detail || `the server answered ${res.status}`);
+      if (E.plan?.id !== planId) return;
+      S.result = body;
+      S.stale = false;
+      const samples = body.sun.samples;
+      S.t = Math.max(0, samples.findIndex((x) => x.hour >= 10));
+      S.tracks = body.movement.people.map((person, i) => {
+        const pts = person.legs.filter((l) => l.ok).flatMap((l) => l.path);
+        const cum = [0];
+        for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
+        return { name: person.name, color: PEOPLE_COLORS[i % PEOPLE_COLORS.length], pts, cum, total: cum[cum.length - 1] || 0 };
+      });
+    } catch (err) {
+      S.error = String(err.message || err);
+    }
+    S.loading = false;
+    render(true);
+  }
+
+  function setMode(mode) {
+    if (mode === E.mode) return;
+    E.mode = mode;
+    E.sel = null;
+    E.assist.open = false;
+    E.tool = "select";
+    if (mode === "simulate") { if (E.sim.stale || !E.sim.result) runSim(); else render(true); }
+    else { stopSim(); render(true); }
+  }
+
+  function stopSim() {
+    if (!E.sim) return;
+    clearInterval(E.sim.sunTimer);
+    cancelAnimationFrame(E.sim.walkFrame);
+    E.sim.sunTimer = 0;
+    E.sim.walking = false;
+  }
+
+  function simOverlay(X, Y, L) {
+    const S = E.sim, r = S.result, out = [];
+    if (!r) return "";
+    const sample = r.sun.samples[S.t];
+    for (const p of sample?.patches || []) {
+      out.push(`<polygon points="${p.poly.map(([x, y]) => `${X(x)},${Y(y)}`).join(" ")}" fill="#ffd54a" fill-opacity=".62" stroke="#e8a900" stroke-width="1" pointer-events="none"/>`);
+    }
+    for (const room of E.plan.rooms) {
+      const m = r.sun.rooms[room.id];
+      if (!m || L(room.w) < 60) continue;
+      const hours = m.sun_hours, fill = hours >= 3 ? "#f2b600" : hours > 0 ? "#f7d774" : "#d6d3cc";
+      out.push(`<g pointer-events="none"><rect x="${X(room.x) + 6}" y="${Y(room.y) + 6}" width="58" height="18" rx="9" fill="${fill}"/>
+        <text x="${X(room.x) + 35}" y="${Y(room.y) + 19}" text-anchor="middle" font-size="11" font-weight="700" fill="#3b2f00">☀ ${+hours.toFixed(2)} h</text></g>`);
+    }
+    S.tracks.forEach((t) => {
+      if (t.pts.length > 1) out.push(`<polyline points="${t.pts.map(([x, y]) => `${X(x)},${Y(y)}`).join(" ")}" fill="none" stroke="${t.color}" stroke-width="2" stroke-opacity=".35" stroke-linejoin="round" pointer-events="none"/>`);
+    });
+    out.push(`<g id="walkers" pointer-events="none">${S.tracks.map((t, i) => `<circle data-w="${i}" r="7" fill="${t.color}" stroke="#fff" stroke-width="2" cx="-99" cy="-99"/>`).join("")}</g>`);
+    return out.join("");
+  }
+
+  // Compass and sun in the canvas corner: where north is on this plan and where the sun is now.
+  function simHud(W) {
+    const r = E.sim.result;
+    if (!r) return "";
+    const sample = r.sun.samples[E.sim.t], north = E.plan.site.north, cx = W - 64, cy = 72, R = 40;
+    const at = (bearing, rad) => { const a = ((bearing - north) * Math.PI) / 180; return [r2(cx + Math.sin(a) * rad), r2(cy - Math.cos(a) * rad)]; };
+    const [nx, ny] = at(0, R + 10), [sx, sy] = sample ? at(sample.azimuth, R * (1 - sample.elevation / 90)) : [cx, cy];
+    return `<g pointer-events="none"><circle cx="${cx}" cy="${cy}" r="${R}" fill="#fff" fill-opacity=".9" stroke="#bdb9ae"/>
+      <line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}" stroke="${INK}" stroke-width="2"/><text x="${nx}" y="${ny - 4}" text-anchor="middle" font-size="12" font-weight="700" fill="${INK}">N</text>
+      ${sample ? `<circle cx="${sx}" cy="${sy}" r="8" fill="#ffc107" stroke="#e8a900"/>` : ""}
+      <text x="${cx}" y="${cy + R + 30}" text-anchor="middle" font-size="11.5" fill="${INK}">${sample ? `${hhmm(sample.hour)} · sun ${Math.round(sample.elevation)}°, ${compass(sample.azimuth)}` : "night"}</text></g>`;
+  }
+
+  function placeWalkers() {
+    const S = E.sim, { s, tx, ty } = E.view;
+    if (!S.result) return;
+    const now = S.walking ? (performance.now() - S.walkStart) / 1000 : S.walkPaused || 0;
+    S.tracks.forEach((t, i) => {
+      const dot = document.querySelector(`#walkers [data-w="${i}"]`);
+      if (!dot || t.pts.length < 2) return;
+      const d = (now * WALK_SPEED) % (t.total + 4);
+      let k = t.cum.findIndex((c) => c >= d);
+      if (k <= 0) k = d > 0 ? t.pts.length - 1 : 1;
+      const a = t.pts[k - 1], b = t.pts[k], seg = t.cum[k] - t.cum[k - 1] || 1, f = Math.min(1, Math.max(0, (d - t.cum[k - 1]) / seg));
+      dot.setAttribute("cx", r2(tx + (a[0] + (b[0] - a[0]) * f) * s));
+      dot.setAttribute("cy", r2(ty + (a[1] + (b[1] - a[1]) * f) * s));
+    });
+  }
+
+  function walkLoop() {
+    if (!E.sim.walking || !$("#plan-editor")) return;
+    placeWalkers();
+    E.sim.walkFrame = requestAnimationFrame(walkLoop);
+  }
+
+  function simPanel() {
+    const S = E.sim, r = S.result, site = E.plan.site;
+    const card = (label, v, sub) => `<div class="sim-score ${tone(v)}"><b>${v ?? "–"}</b><span>${label}</span>${sub ? `<em>${sub}</em>` : ""}</div>`;
+    const settings = `<div class="pe-row"><label class="pe-field"><span>Location</span><select data-sim="city">${Object.keys(CITIES).map((c) => `<option ${site.city === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>
+      <label class="pe-field"><span>Day</span><select data-sim="season">${Object.entries(SEASONS).map(([k, v]) => `<option value="${k}" ${S.season === k ? "selected" : ""}>${v}</option>`).join("")}</select></label></div>
+      <label class="pe-field wide"><span>The top of the plan faces</span><select data-sim="north">${FACES.map((f, i) => `<option value="${i * 45}" ${Number(site.north) === i * 45 ? "selected" : ""}>${f}</option>`).join("")}</select></label>`;
+    if (!r) {
+      return `<div class="pe-head"><h3>Simulation</h3><button class="link small" data-pact="mode" data-mode="design">Back to design</button></div>${settings}
+        ${S.loading ? `<p class="small muted"><span class="spin"></span> Simulating the sun, the routes and the space…</p>` : ""}${S.error ? `<p class="assist-err">${esc(S.error)}</p>` : ""}`;
+    }
+    const samples = r.sun.samples, sample = samples[S.t];
+    const daylightRows = r.daylight.rooms.map((x) => `<tr><td>${esc(x.room)}</td><td class="num">${x.sun_hours} h</td><td class="num">${Math.round(x.glazing_ratio * 100)}%</td></tr>`).join("");
+    const people = r.movement.people.map((p, i) => `<tr><td><span class="swatch" style="background:${PEOPLE_COLORS[i % PEOPLE_COLORS.length]}"></span>${esc(p.name)}</td>
+      <td class="num">${Math.round(p.daily_m)} m</td><td class="num">${p.legs.filter((l) => !l.ok).length ? `<span class="bad">${p.legs.filter((l) => !l.ok).length} blocked</span>` : "✓"}</td></tr>`).join("");
+    const notes = (xs) => (xs.length ? `<ul class="sim-notes">${xs.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : `<p class="small muted">Nothing to flag.</p>`);
+    return `<div class="pe-head"><h3>Simulation</h3><button class="link small" data-pact="mode" data-mode="design">Back to design</button></div>
+      <div class="sim-scores">${card("Overall", r.overall)}${card("Daylight", r.scores.daylight)}${card("Movement", r.scores.movement)}${card("Space", r.scores.space)}</div>
+      <p class="tiny muted" style="margin:6px 0 12px">Measured from the plan's geometry: rules of thumb to compare options, not a building-code check.
+        <a href="https://github.com/compiler-aditya/groundtruth/blob/main/docs/simulation.md" target="_blank" rel="noopener">How it's scored</a>${S.stale ? " · <b>The plan changed</b>: <button class='link small' data-pact='sim-rerun'>run again</button>" : ""}</p>
+      ${settings}
+      <h4>☀ Sun on ${SEASONS[S.season]} in ${esc(site.city)}</h4>
+      <div class="sim-time"><button class="btn small" data-pact="sim-sun-play" title="Play the day">${S.sunTimer ? "❚❚" : "▶"}</button>
+        <input type="range" min="0" max="${samples.length - 1}" value="${S.t}" data-sim="t" aria-label="Time of day">
+        <span class="mono small">${sample ? hhmm(sample.hour) : ""}</span></div>
+      <p class="tiny muted" style="margin:2px 0 8px">Solar time. Sunrise to sunset: ${r.sun.daylight_hours} h of daylight.</p>
+      ${r.daylight.rooms.length ? `<table class="pe-table"><tr><td class="muted small">Room</td><td class="num muted small">Direct sun</td><td class="num muted small">Windows</td></tr>${daylightRows}</table>` : ""}
+      ${notes(r.daylight.notes)}
+      <h4>🚶 A day of moving around</h4>
+      <div class="pe-actions"><button class="btn small" data-pact="sim-walk">${S.walking ? "❚❚ Pause" : "▶ Watch everyone's day"}</button></div>
+      <table class="pe-table">${people}</table>
+      ${notes(r.movement.notes)}
+      <h4>♿ Space</h4>${notes(r.space.notes)}
+      <div id="sim-ai"></div>`;
+  }
+
+  function bindSim(side) {
+    for (const el of $$("[data-sim]", side)) {
+      const apply = () => {
+        const k = el.dataset.sim, site = E.plan.site;
+        if (k === "t") { E.sim.t = Number(el.value); render(); return; }
+        if (k === "city") { site.city = el.value; site.latitude = CITIES[el.value]; }
+        if (k === "north") site.north = Number(el.value);
+        if (k === "season") E.sim.season = el.value;
+        changed(false);
+        runSim();
+      };
+      el.oninput = el.dataset.sim === "t" ? apply : null;
+      el.onchange = el.dataset.sim === "t" ? null : apply;
+    }
+  }
+
+  Object.assign(EDIT_ACTIONS, {
+    mode: (el) => setMode(el.dataset.mode),
+    "sim-rerun": runSim,
+    "sim-sun-play": () => {
+      const S = E.sim;
+      if (S.sunTimer) { clearInterval(S.sunTimer); S.sunTimer = 0; render(true); return; }
+      if (S.t >= S.result.sun.samples.length - 1) S.t = 0;
+      S.sunTimer = setInterval(() => {
+        if (!$("#plan-editor") || E.mode !== "simulate") return stopSim();
+        S.t += 1;
+        if (S.t >= S.result.sun.samples.length - 1) { clearInterval(S.sunTimer); S.sunTimer = 0; }
+        render(true);
+      }, 140);
+      render(true);
+    },
+    "sim-walk": () => {
+      const S = E.sim;
+      if (S.walking) { S.walkPaused = (performance.now() - S.walkStart) / 1000; S.walking = false; cancelAnimationFrame(S.walkFrame); }
+      else { S.walkStart = performance.now() - (S.walkPaused || 0) * 1000; S.walking = true; walkLoop(); }
+      render(true);
+    },
+  });
 
   /* ---------------- design assistant ---------------- */
   const EX_NEW = ["A three-bedroom family house of about 110 m² with an open kitchen and living area, two bathrooms and a hallway",

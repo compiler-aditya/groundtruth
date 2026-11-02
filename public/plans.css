@@ -113,3 +113,20 @@ body.studio .foot { display: none; }
 .assist-done ul { margin: 2px 0 0; padding-left: 18px; font-size: 12.5px; }
 .assist-done ul.bad { color: var(--ncr); }
 .assist-err { color: var(--ncr); font-size: 13px; }
+
+/* simulation */
+.pe-mode { margin: 0; grid-template-columns: auto auto; }
+.pe-mode button { padding: 6px 12px; }
+.sim-scores { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.sim-score { border-radius: 10px; padding: 7px 6px; text-align: center; background: var(--soft); border-top: 3px solid var(--line); }
+.sim-score b { display: block; font-size: 21px; line-height: 1.1; }
+.sim-score span { font-size: 11px; color: var(--muted); }
+.sim-score.good { border-top-color: var(--pass); } .sim-score.good b { color: var(--pass); }
+.sim-score.fair { border-top-color: var(--rfi); } .sim-score.fair b { color: var(--rfi); }
+.sim-score.poor { border-top-color: var(--ncr); } .sim-score.poor b { color: var(--ncr); }
+.sim-time { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.sim-time input[type=range] { padding: 0; border: 0; accent-color: #e8a900; }
+.sim-notes { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--rfi); }
+.sim-notes li { margin: 3px 0; }
+.pe-table .bad { color: var(--ncr); font-weight: 600; }
+@media (max-width: 900px) { .pe-mode button { padding: 6px 9px; } }
