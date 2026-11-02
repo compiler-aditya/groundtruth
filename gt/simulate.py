@@ -19,6 +19,7 @@ CITIES = {"Delhi": 28.6, "Mumbai": 19.1, "Bengaluru": 13.0, "Singapore": 1.35, "
           "New York": 40.7, "San Francisco": 37.8, "Tokyo": 35.7, "Sydney": -33.9, "São Paulo": -23.5}
 OUTWARD = {"n": (0.0, -1.0), "s": (0.0, 1.0), "w": (-1.0, 0.0), "e": (1.0, 0.0)}
 STEP_H = 0.25
+FACING = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"]
 
 
 def r2(v: float) -> float:
@@ -105,12 +106,16 @@ def sun_patches(plan: dict, az: float, el: float, north: float) -> list[dict]:
 
 def sun_day(plan: dict, latitude: float, day: int, north: float = 0.0) -> dict:
     """Sun samples every 15 minutes of daylight, each room's hours of direct sun and its window-to-floor ratio."""
-    samples, hours = [], {r["id"]: 0.0 for r in plan["rooms"]}
+    samples, hours, walls = [], {r["id"]: 0.0 for r in plan["rooms"]}, {side: 0.0 for side in "nsew"}
     for k in range(int(24 / STEP_H)):
         hour = k * STEP_H
         az, el = sun_position(latitude, day, hour)
         if el <= 0.5:
             continue
+        s = plan_vector(az, north)
+        for side, n in OUTWARD.items():
+            if s[0] * n[0] + s[1] * n[1] > 0.05:
+                walls[side] += STEP_H
         patches = sun_patches(plan, az, el, north)
         for rid in {p["room"] for p in patches}:
             hours[rid] += STEP_H
@@ -120,7 +125,7 @@ def sun_day(plan: dict, latitude: float, day: int, north: float = 0.0) -> dict:
         glass[op["room"]] += op["width"] * (HEAD - SILL)
     rooms = {r["id"]: {"sun_hours": hours[r["id"]], "glazing_ratio": r2(glass[r["id"]] / area(r)) if area(r) else 0.0} for r in plan["rooms"]}
     return {"latitude": latitude, "day": day, "north": north, "samples": samples, "rooms": rooms,
-            "daylight_hours": r2(len(samples) * STEP_H)}
+            "daylight_hours": r2(len(samples) * STEP_H), "wall_sun_hours": walls}
 
 
 def daylight_score(plan: dict, sun: dict) -> dict:
@@ -317,24 +322,19 @@ def movement(plan: dict) -> dict:
     people, notes, blocked, privacy, detours = [], [], 0, 0, []
     for person in routines(plan):
         legs, day = [], 0.0
-        stops = person["stops"]
-        for k in range(len(stops) - 1):
-            frm, to = stops[k], stops[k + 1]
-            src_id, a = target(frm) if frm != "bath" else (None, None)
-            if frm == "bath":
-                src_id, a = legs[-1]["to_id"], legs[-1]["_end"]
-            if to == "bath":
-                options = [(target(bt), bt) for bt in baths]
-                options = [((bid, cell), bt) for (bid, cell), bt in options if walk(a, cell)]
-                if not options and baths:
-                    options = [(target(baths[0]), baths[0])]
-                if not options:
-                    continue
-                (to_id, b), _ = min(options, key=lambda o: len(walk(a, o[0][1]) or []) or 1e9)
+        stops = [s for s in person["stops"] if s != "bath" or baths]
+        here = target(stops[0])  # where this person is: (room id, cell)
+        for to in stops[1:]:
+            src_id, a = here
+            if to == "bath":  # the nearest bathroom they can reach, else the first one
+                options = [target(bt) for bt in baths]
+                options = [o for o in options if walk(a, o[1])] or options[:1]
+                to_id, b = min(options, key=lambda o: len(walk(a, o[1]) or []) or 1e9)
             else:
                 to_id, b = target(to)
+            here = (to_id, b)
             path = walk(a, b)
-            leg = {"from": names.get(src_id, "?"), "to": names.get(to_id, "?"), "to_id": to_id, "_end": b, "ok": bool(path)}
+            leg = {"from": names.get(src_id, "?"), "to": names.get(to_id, "?"), "ok": bool(path)}
             if path:
                 pts, crossed = [], []
                 for i in path:
@@ -366,8 +366,6 @@ def movement(plan: dict) -> dict:
                 leg["why"] = why
                 notes.append(f"{person['name']} can't get from {leg['from']} to {leg['to']}: {why}")
             legs.append(leg)
-        for leg in legs:
-            leg.pop("_end", None)
         people.append({"name": person["name"], "role": person["role"], "legs": legs, "daily_m": r2(day)})
     detour = sum(detours) / len(detours) if detours else 1.0
     if detour > 2.0:  # a hallway plan is usually 1.5-1.9: rooms are entered from the corridor, not straight across
@@ -447,7 +445,10 @@ def simulate(plan: dict, latitude: float = 28.6, day: int = DAYS["winter"], nort
 
 def summary(result: dict) -> dict:
     """The simulation without the drawing data, for the design assistant."""
+    names = {"n": "north", "s": "south", "e": "east", "w": "west"}
     return {"scores": result["scores"], "overall": result["overall"],
+            "sun_on_each_wall_h": {f"{names[k]} walls (facing {FACING[int(round(((result['sun']['north'] + deg) % 360) / 45)) % 8]})": v
+                                   for k, deg, v in ((k, {"n": 0, "e": 90, "s": 180, "w": 270}[k], v) for k, v in result["sun"]["wall_sun_hours"].items())},
             "daylight": {"rooms": [{k: x[k] for k in ("room", "sun_hours", "glazing_ratio")} for x in result["daylight"]["rooms"]], "notes": result["daylight"]["notes"]},
             "movement": {"daily_m": {p["name"]: p["daily_m"] for p in result["movement"]["people"]}, "notes": result["movement"]["notes"],
                          "mean_detour": result["movement"].get("mean_detour")},

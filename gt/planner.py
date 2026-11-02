@@ -11,6 +11,8 @@ from typing import Callable
 
 from .config import PRICE, WONDER, meta_client
 from .floorplan import BUILDING_KINDS, ROOM_TYPES, PlanBuilder, check, describe
+from .simulate import simulate
+from .simulate import summary as sim_summary
 from .spark import Usage
 
 NUM = {"type": "number"}
@@ -72,6 +74,52 @@ SYSTEM = (
 )
 
 
+SIM_TOOL = _fn("simulate",
+                "Run the simulation on the plan as it is now: daylight (hours of direct sun per room, window area as a share of "
+                "floor area), movement (metres people walk in a day, blocked trips, people crossing bedrooms) and space "
+                "(turning circles, crowded rooms, narrow doors), each scored 0-100, plus how many hours of sun reach walls "
+                "facing each way.", {}, [])
+
+SYSTEM_IMPROVE = (
+    "You are the GroundTruth design assistant, improving an existing floor plan with a simulation. The simulate tool "
+    "measures the plan; its scores come from geometry, not opinion. Coordinates are metres, x east and y south on the "
+    "plan, and walls are named by the plan's own directions (north = top of the plan); the site may be turned, so use "
+    "sun_on_each_wall_h to see which walls actually get sun.\n"
+    "1. Read the goal and the baseline simulation. In a short note, say which changes you will try and why.\n"
+    "2. Make the changes with the tools. Good moves: add or widen windows on walls that get sun (add_window, "
+    "remove_opening); swap the uses of two rooms of similar size (update_room with name and type, via a temporary "
+    "name); move or add a door so a route no longer crosses a bedroom (remove_opening, connect); resize or move rooms "
+    "only when needed. Keep the user's rooms and roughly their sizes unless the goal asks otherwise.\n"
+    "3. Call simulate after each change or small group of changes. Undo anything that made a score worse.\n"
+    "4. Call check_plan, then finish with a summary that quotes the before and after scores. finish is refused if the "
+    "overall score went down; if nothing you try helps, put the plan back and finish saying so."
+)
+
+
+class SimBuilder(PlanBuilder):
+    """The plan tools plus simulate; finish is refused if the overall score fell."""
+
+    def __init__(self, plan: dict | None, settings: dict) -> None:
+        super().__init__(plan)
+        self.settings = settings
+        self.start = json.dumps(self.plan, sort_keys=True)
+        self.before = sim_summary(simulate(self.plan, **settings))
+        self.after = self.before
+
+    def tool_simulate(self) -> dict:
+        return sim_summary(simulate(self.plan, **self.settings))
+
+    def tool_finish(self, summary: str, name: str | None = None, kind: str | None = None) -> dict:
+        after = sim_summary(simulate(self.plan, **self.settings))
+        changed = json.dumps(self.plan, sort_keys=True) != self.start
+        if changed and (after["overall"] or 0) < (self.before["overall"] or 0):
+            raise ValueError(f"not finished: the overall score fell from {self.before['overall']} to {after['overall']} "
+                             f"(scores now {after['scores']}, before {self.before['scores']}); undo what hurt it or try something else")
+        out = super().tool_finish(summary, name, kind)
+        self.after = after
+        return {**out, "before": self.before["scores"], "after": after["scores"]}
+
+
 def _brief(tool: str, args: dict, out: dict) -> str:
     if "error" in out:
         return ("Refused to finish: " if tool == "finish" else "Refused: ") + out["error"]
@@ -93,6 +141,8 @@ def _brief(tool: str, args: dict, out: dict) -> str:
         return f"Removed opening {out['removed']}"
     if tool == "check_plan":
         return f"Checked: {len(out['errors'])} errors, {len(out['warnings'])} warnings, {out['total_area_m2']:.1f} m² in {out['rooms']} rooms"
+    if tool == "simulate":
+        return "Simulated: " + ", ".join(f"{k} {v}" for k, v in out["scores"].items() if v is not None) + f" (overall {out['overall']})"
     if tool == "finish":
         return "Finished"
     return tool
@@ -103,18 +153,23 @@ def _text(item) -> str:
 
 
 def run_planner(request: str, plan: dict | None = None, *, model: str = WONDER, effort: str = "medium", max_turns: int = 14,
-                on_event: Callable[[dict], None] = lambda event: None, client=None) -> dict:
+                on_event: Callable[[dict], None] = lambda event: None, client=None, simulation: dict | None = None) -> dict:
     """Lays out (or changes) a plan from a request. on_event gets note, turn and tool events; a tool event that
-    changed the plan carries the whole plan, so a browser can draw it as it grows."""
-    builder = PlanBuilder(plan)
+    changed the plan carries the whole plan, so a browser can draw it as it grows. With simulation settings
+    (latitude, day, north) it improves the plan against the simulation instead, and reports scores before and after."""
+    builder = SimBuilder(plan, simulation) if simulation else PlanBuilder(plan)
     client = client or meta_client()
     usage = Usage(PRICE["wonder_in_per_m"], PRICE["wonder_out_per_m"]) if model == WONDER else Usage()
-    conversation: list = [{"role": "user", "content": f"Request: {request}\n\nCurrent plan (metres; x east, y south):\n{describe(builder.plan)}"}]
+    intro = f"Request: {request}\n\nCurrent plan (metres; x east, y south):\n{describe(builder.plan)}"
+    if simulation:
+        intro = f"Goal: {request}\n\nCurrent plan (metres; x east, y south on the plan):\n{describe(builder.plan)}\n\nBaseline simulation:\n{json.dumps(builder.before)}"
+    conversation: list = [{"role": "user", "content": intro}]
+    instructions, tools = (SYSTEM_IMPROVE, PLAN_TOOLS + [SIM_TOOL]) if simulation else (SYSTEM, PLAN_TOOLS)
     trace: list[dict] = []
     started, turn = time.time(), 0
     for turn in range(1, max_turns + 1):
         t0 = time.time()
-        response = client.responses.create(model=model, instructions=SYSTEM, input=conversation, tools=PLAN_TOOLS,
+        response = client.responses.create(model=model, instructions=instructions, input=conversation, tools=tools,
                                            reasoning={"effort": effort}, max_output_tokens=12000)
         usage.add(response.usage)
         if response.status != "completed":
@@ -139,13 +194,15 @@ def run_planner(request: str, plan: dict | None = None, *, model: str = WONDER, 
             output = builder.call(call.name, args)
             ok = "error" not in output
             event = {"type": "tool", "turn": turn, "tool": call.name, "args": args, "ok": ok, "brief": _brief(call.name, args, output)}
-            if ok and call.name not in ("check_plan", "finish"):
+            if ok and call.name not in ("check_plan", "finish", "simulate"):
                 event["plan"] = copy.deepcopy(builder.plan)
             on_event(event)
             trace.append({"turn": turn, "type": "tool", "tool": call.name, "args": args, "ok": ok, "brief": event["brief"]})
             conversation.append({"type": "function_call_output", "call_id": call.call_id, "output": json.dumps(output)})
         if builder.finished:
             break
-    return {"plan": builder.plan, "finished": bool(builder.finished), "summary": builder.finished, "name": builder.name, "kind": builder.kind,
+    scores = {"before": builder.before["scores"] | {"overall": builder.before["overall"]},
+              "after": builder.after["scores"] | {"overall": builder.after["overall"]}} if simulation else {}
+    return {"plan": builder.plan, "finished": bool(builder.finished), "summary": builder.finished, "name": builder.name, "kind": builder.kind, **scores,
             "check": check(builder.plan), "model": model, "turns": turn, "seconds": round(time.time() - started, 1),
             "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens, "cost_usd": round(usage.cost, 4), "trace": trace}

@@ -257,10 +257,20 @@ async def plan_assist(request: Request) -> StreamingResponse:
     text = re.sub(r"\s+", " ", str(body.get("request") or "")).strip()
     if not 3 <= len(text) <= 800:
         raise HTTPException(400, "Describe what you want in 3 to 800 characters.")
-    edit = body.get("mode") == "edit"
-    plan = clean(body.get("plan")) if edit else None
+    mode = body.get("mode") if body.get("mode") in ("edit", "improve") else "new"
+    plan = clean(body.get("plan")) if mode != "new" else None
+    simulation = None
+    if mode == "improve":
+        if not plan["rooms"]:
+            raise HTTPException(400, "There is no plan to improve.")
+        settings = body.get("settings") or {}
+        try:
+            simulation = {"latitude": min(66.0, max(-66.0, float(settings.get("latitude", 28.6)))),
+                          "day": DAYS.get(settings.get("season"), DAYS["winter"]), "north": float(settings.get("north", 0)) % 360}
+        except (TypeError, ValueError):
+            raise HTTPException(400, "latitude and north must be numbers")
     _admit(request)
-    return _job(lambda emit: run_planner(text, plan, on_event=emit), {"mode": "edit" if edit else "new", "request": text})
+    return _job(lambda emit: run_planner(text, plan, on_event=emit, simulation=simulation), {"mode": mode, "request": text})
 
 
 @app.post("/api/plan/simulate")

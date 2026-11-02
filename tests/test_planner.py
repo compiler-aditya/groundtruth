@@ -36,7 +36,7 @@ sent = []
 class FakeResponses:
     def create(self, **kw):
         sent.append(kw)
-        assert kw["tools"] is PLAN_TOOLS and kw["model"] == "muse-wonder-1.0"
+        assert kw["tools"][:len(PLAN_TOOLS)] == PLAN_TOOLS and kw["model"] == "muse-wonder-1.0"
         return NS(output=TURNS[len(sent) - 1], usage=NS(input_tokens=1000, output_tokens=200), status="completed", incomplete_details=None)
 
 
@@ -73,7 +73,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 import app  # noqa: E402
 
 
-def fake_planner(text, plan, on_event):
+def fake_planner(text, plan, on_event, simulation=None):
     on_event({"type": "tool", "tool": "add_room", "ok": True, "brief": "Added Hall", "plan": {"rooms": [], "openings": [], "items": []}})
     return {"plan": plan or {"rooms": []}, "finished": True, "summary": f"for {text}"}
 
@@ -87,3 +87,30 @@ edit = [json.loads(line) for line in web.post("/api/plan/assist", json={"request
 assert edit[0]["mode"] == "edit" and edit[-1]["plan"]["rooms"][0]["id"] == "r1", edit
 assert web.post("/api/plan/assist", json={"request": "x"}).status_code == 400
 print("planner endpoint: all checks passed")
+
+# improve mode: the simulation is a tool, and finish is refused if the overall score fell
+from gt.floorplan import PlanBuilder  # noqa: E402
+
+base = PlanBuilder()
+base.call("add_room", {"name": "Living", "type": "living", "width": 5, "depth": 4, "x": 0, "y": 0})
+base.call("add_room", {"name": "Bedroom", "type": "bedroom", "width": 3.5, "depth": 4, "next_to": "Living", "side": "east"})
+base.call("add_entrance", {"room": "Living", "side": "west"})
+base.call("connect", {"room_a": "Living", "room_b": "Bedroom"})
+base.call("add_window", {"room": "Living", "side": "south"})
+base.call("add_window", {"room": "Bedroom", "side": "north"})  # gets no sun in a Delhi winter
+south = next(op["id"] for op in base.plan["openings"] if op["type"] == "window" and op["side"] == "s")
+TURNS[:] = [
+    [call(1, "simulate"), call(2, "remove_opening", opening=south), call(3, "finish", summary="less glare")],    # worse: refused
+    [call(4, "add_window", room="Living", side="south"), call(5, "add_window", room="Bedroom", side="south"),
+     call(6, "simulate"), call(7, "finish", summary="Sunnier bedroom.")],
+]
+sent.clear()
+events.clear()
+settings = {"latitude": 28.6, "day": 355, "north": 0.0}
+better = run_planner("more sun in the bedroom", base.plan, client=NS(responses=FakeResponses()), on_event=events.append, simulation=settings)
+briefs = [e["brief"] for e in events if e["type"] == "tool"]
+assert briefs[0].startswith("Simulated: daylight") and briefs[2].startswith("Refused to finish: not finished: the overall score fell"), briefs
+assert better["finished"] and better["after"]["daylight"] > better["before"]["daylight"] and better["after"]["overall"] > better["before"]["overall"], better
+assert any(t["name"] == "simulate" for t in sent[0]["tools"]) and "Baseline simulation" in sent[0]["input"][0]["content"]
+assert "sun_on_each_wall_h" in sent[0]["input"][0]["content"] and "plan" not in [e for e in events if e["type"] == "tool"][0]
+print("planner improve mode: all checks passed")
