@@ -72,7 +72,8 @@ SYSTEM = (
     "4. Call check_plan, fix every error and the warnings you reasonably can, then call finish with a two or three "
     "sentence summary for the client that quotes the measured total area.\n"
     "If a tool refuses, read its reason and adjust; never assume a call worked. When the request changes an "
-    "existing plan, keep what is not mentioned."
+    "existing plan, keep what is not mentioned. If the user only asks a question about the plan, answer it in "
+    "finish's summary without changing anything."
 )
 
 
@@ -157,7 +158,8 @@ def _text(item) -> str:
 
 
 def run_planner(request: str, plan: dict | None = None, *, model: str = WONDER, effort: str = "medium", max_turns: int = 14,
-                on_event: Callable[[dict], None] = lambda event: None, client=None, simulation: dict | None = None) -> dict:
+                on_event: Callable[[dict], None] = lambda event: None, client=None, simulation: dict | None = None,
+                history: list[dict] | None = None) -> dict:
     """Lays out (or changes) a plan from a request. on_event gets note, turn and tool events; a tool event that
     changed the plan carries the whole plan, so a browser can draw it as it grows. With simulation settings
     (latitude, day, north) it improves the plan against the simulation instead, and reports scores before and after."""
@@ -169,6 +171,9 @@ def run_planner(request: str, plan: dict | None = None, *, model: str = WONDER, 
     intro = f"Request: {request}\n\nCurrent plan (metres; x east, y south):\n{describe(builder.plan)}"
     if simulation:
         intro = f"Goal: {request}\n\nCurrent plan (metres; x east, y south on the plan):\n{describe(builder.plan)}\n\nBaseline simulation:\n{json.dumps(builder.before)}"
+    if history:  # earlier turns of a studio chat, so "make it bigger" has something to refer to
+        past = "\n".join(f"{'User' if h['role'] == 'user' else 'Assistant'}: {h['text']}" for h in history[-8:])
+        intro = f"Conversation so far:\n{past}\n\n{intro}"
     conversation: list = [{"role": "user", "content": intro}]
     instructions, tools = (SYSTEM_IMPROVE, PLAN_TOOLS + [SIM_TOOL]) if simulation else (SYSTEM, PLAN_TOOLS)
     trace: list[dict] = []

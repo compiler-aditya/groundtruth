@@ -33,7 +33,10 @@ from fastapi.staticfiles import StaticFiles
 from gt.floorplan import clean
 from gt.live import LiveRun
 from gt.package import Package
+from gt.config import meta_client
 from gt.planner import run_planner
+from gt.sketch import describe_draft, load_draft, read_draft
+from gt.spark import Usage
 from gt.simulate import DAYS, simulate
 
 ROOT = Path(__file__).resolve().parent
@@ -271,6 +274,47 @@ async def plan_assist(request: Request) -> StreamingResponse:
             raise HTTPException(400, "latitude and north must be numbers")
     _admit(request)
     return _job(lambda emit: run_planner(text, plan, on_event=emit, simulation=simulation), {"mode": mode, "request": text})
+
+
+@app.post("/api/studio/chat")
+async def studio_chat(
+    request: Request,
+    message: str = Form(""),
+    plan: str = Form("{}"),
+    history: str = Form("[]"),
+    file: UploadFile | None = File(None),
+) -> StreamingResponse:
+    """The studio's AI chat: a message (and optionally a draft to read) changes the plan, or starts one."""
+    text = re.sub(r"\s+", " ", message).strip()[:1500]
+    data, filename = (await file.read(), file.filename or "draft") if file else (None, "")
+    if not text and not data:
+        raise HTTPException(400, "Write a message or attach a draft.")
+    if data is not None and (len(data) > MAX_FILE_MB * 1e6 or Path(filename).suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp", ".pdf"}):
+        raise HTTPException(400, "Attach a JPG, PNG, WebP or PDF of at most 4 MB.")
+    try:
+        current = clean(json.loads(plan or "{}"))
+        turns = [{"role": "user" if h.get("role") == "user" else "ai", "text": str(h.get("text", ""))[:600]}
+                 for h in json.loads(history or "[]")[-8:] if isinstance(h, dict) and h.get("text")]
+    except (ValueError, TypeError):
+        raise HTTPException(400, "plan and history must be JSON")
+    _admit(request)
+
+    def work(emit):
+        request_text, spark_cost = text or "Lay out the uploaded draft as a plan.", 0.0
+        if data is not None:  # a draft starts a new layout (the studio keeps the old one for undo)
+            emit({"type": "note", "turn": 0, "text": "Reading your draft with Muse Spark 1.3…"})
+            usage = Usage()
+            reading = read_draft(meta_client(), load_draft(data, filename), usage=usage)
+            spark_cost = usage.cost
+            brief = describe_draft(reading)
+            emit({"type": "sketch", "reading": reading, "brief": brief})
+            request_text = f"{request_text}\n\n{brief}"
+        start = None if data is not None or not current["rooms"] else current
+        result = run_planner(request_text, start, on_event=emit, history=turns)
+        result["cost_usd"] = round(result["cost_usd"] + spark_cost, 4)
+        return result
+
+    return _job(work, {"mode": "new" if data is not None or not current["rooms"] else "edit", "request": text, "draft": data is not None})
 
 
 @app.post("/api/plan/simulate")
