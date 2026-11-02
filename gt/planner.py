@@ -10,7 +10,7 @@ import time
 from typing import Callable
 
 from .config import PRICE, WONDER, meta_client
-from .floorplan import BUILDING_KINDS, ROOM_TYPES, PlanBuilder, check, describe
+from .floorplan import BUILDING_KINDS, ITEMS, ROOM_TYPES, PlanBuilder, check, describe
 from .simulate import simulate
 from .simulate import summary as sim_summary
 from .spark import Usage
@@ -48,6 +48,12 @@ PLAN_TOOLS = [
     _fn("add_window", "Put windows on an outside wall of a room (the longest one if no side is given).",
         {"room": ROOM, "side": SIDE, "width": NUM, "count": {"type": "integer", "minimum": 1, "maximum": 4}}, ["room"]),
     _fn("remove_opening", "Remove a door, passage or window by its id.", {"opening": {"type": "string"}}, ["opening"]),
+    _fn("furnish_room", "Furnish a room with the usual pieces for its type (beds and a wardrobe, a sofa, kitchen units, bathroom fittings, "
+        "desks...). The code places each piece against a wall, clear of doors and other furniture.", {"room": ROOM}, ["room"]),
+    _fn("add_furniture", "Add one piece of furniture to a room, against a wall (the code finds the spot) or in the middle for tables and plants.",
+        {"room": ROOM, "type": {"type": "string", "enum": list(ITEMS)}, "wall": SIDE}, ["room", "type"]),
+    _fn("remove_furniture", "Remove the furniture in a room (only pieces of one type if given).",
+        {"room": ROOM, "type": {"type": "string", "enum": list(ITEMS)}}, ["room"]),
     _fn("check_plan",
         "Measure the plan: errors that must be fixed (overlaps, no entrance, rooms that can't be reached), warnings "
         "(rooms without windows, rooms smaller than usual), the total floor area, and every room with its neighbours.",
@@ -69,7 +75,8 @@ SYSTEM = (
     "add_room calls can go in one turn; they run in order.\n"
     "3. Connect the rooms with doors (passage for open-plan spaces such as kitchen to living), add one entrance on "
     "an outside wall, and windows on outside walls of every bedroom, living room, kitchen and office.\n"
-    "4. Call check_plan, fix every error and the warnings you reasonably can, then call finish with a two or three "
+    "4. Furnish every room with furnish_room (several calls in one turn), unless the user asked for an empty plan.\n"
+    "5. Call check_plan, fix every error and the warnings you reasonably can, then call finish with a two or three "
     "sentence summary for the client that quotes the measured total area.\n"
     "If a tool refuses, read its reason and adjust; never assume a call worked. When the request changes an "
     "existing plan, keep what is not mentioned. If the user only asks a question about the plan, answer it in "
@@ -136,6 +143,13 @@ def _brief(tool: str, args: dict, out: dict) -> str:
         return f"Removed {out['removed']}"
     if tool == "swap_rooms":
         return f"Swapped {out['swapped'][1]} and {out['swapped'][0]}"
+    if tool == "furnish_room":
+        return f"Furnished {out['room']}: {', '.join(k.replace('_', ' ') for k in out['placed']) or 'nothing fitted'}" + (
+            f" (no room for {', '.join(k.replace('_', ' ') for k in out['no_room_for'])})" if out.get("no_room_for") else "")
+    if tool == "add_furniture":
+        return f"Added a {out['added'].replace('_', ' ')} in {out['room']} ({out['against']})"
+    if tool == "remove_furniture":
+        return f"Removed {out['removed']} piece(s) of furniture from {out['room']}"
     if tool == "connect":
         return f"{'Door' if out['added'] == 'door' else 'Open passage'} between {out['between'][0]} and {out['between'][1]}"
     if tool == "add_entrance":

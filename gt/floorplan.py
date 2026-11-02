@@ -225,7 +225,121 @@ def new_id(prefix: str) -> str:
     return prefix + uuid.uuid4().hex[:8]
 
 
-class PlanBuilder:
+# ---------------------------------------------------------------- furniture, placed by the code against walls
+
+ITEMS = {  # type: (width, depth) in metres, matching the editor's palette
+    "bed_double": (1.6, 2.0), "bed_single": (0.9, 2.0), "sofa": (2.0, 0.9), "armchair": (0.8, 0.8), "dining_table": (1.6, 0.9),
+    "meeting_table": (2.4, 1.2), "desk": (1.4, 0.7), "wardrobe": (1.2, 0.6), "counter": (2.4, 0.6), "stove": (0.6, 0.6),
+    "kitchen_sink": (0.8, 0.5), "fridge": (0.7, 0.7), "toilet": (0.45, 0.7), "basin": (0.5, 0.4), "shower": (0.9, 0.9),
+    "bathtub": (1.7, 0.75), "stairs": (1.0, 3.0), "car": (1.9, 4.5), "plant": (0.5, 0.5),
+}
+ROT = {"n": 0, "e": 90, "s": 180, "w": 270}  # rotation that puts an item's back against that wall
+FREESTANDING = {"dining_table", "meeting_table", "plant", "car"}
+
+
+def item_box(it: dict) -> tuple[float, float, float, float]:
+    w, h = (it["h"], it["w"]) if int(it.get("rot", 0)) % 180 else (it["w"], it["h"])
+    return it["cx"] - w / 2, it["cy"] - h / 2, it["cx"] + w / 2, it["cy"] + h / 2
+
+
+def _hits(a: tuple, b: tuple) -> bool:
+    return a[0] < b[2] - EPS and b[0] < a[2] - EPS and a[1] < b[3] - EPS and b[1] < a[3] - EPS
+
+
+def keep_clear(plan: dict, room: dict) -> list[tuple]:
+    """Floor in front of every door and passage on this room's walls, which furniture must leave free."""
+    zones = []
+    for op in plan["openings"]:
+        if op["type"] == "window":
+            continue
+        span = opening_span(plan, op)
+        if not span:
+            continue
+        o, c, a, b = span
+        for side, o2, c2, a2, b2 in edges(room):
+            if o2 == o and abs(c2 - c) < EPS and a >= a2 - EPS and b <= b2 + EPS:
+                depth = min(0.95, (room["h"] if o == "h" else room["w"]) - 0.1)
+                zones.append({"n": (a, c, b, c + depth), "s": (a, c - depth, b, c), "w": (c, a, c + depth, b), "e": (c - depth, a, c, b)}[side])
+    return zones
+
+
+class _Furnishing:
+    def _item_fits(self, room: dict, box: tuple, ignore: str = "") -> bool:
+        x0, y0, x1, y1 = box
+        if x0 < room["x"] - EPS or y0 < room["y"] - EPS or x1 > room["x"] + room["w"] + EPS or y1 > room["y"] + room["h"] + EPS:
+            return False
+        if any(_hits(box, z) for z in keep_clear(self.plan, room)):
+            return False
+        return not any(it["id"] != ignore and _hits(box, item_box(it)) for it in self.plan["items"])
+
+    def _place_item(self, room: dict, kind: str, wall: str | None) -> dict | None:
+        w, h = ITEMS[kind]
+        if kind in FREESTANDING:  # in the middle of the free floor, nearest the centre
+            cands = [(room["x"] + room["w"] / 2 + dx, room["y"] + room["h"] / 2 + dy) for dx in (0, -0.6, 0.6, -1.2, 1.2) for dy in (0, -0.6, 0.6, -1.2, 1.2)]
+            for cx, cy in cands:
+                it = {"id": new_id("i"), "type": kind, "cx": r2(cx), "cy": r2(cy), "w": w, "h": h, "rot": 0 if room["w"] >= room["h"] or kind == "car" and room["w"] >= 4.6 else 90}
+                if self._item_fits(room, item_box(it)):
+                    return it
+            return None
+        walls = [SIDES[wall.lower()]] if wall else sorted("nsew", key=lambda s: -(room["w"] if s in "ns" else room["h"]))
+        for side in walls:
+            rot = ROT[side]
+            fw, fd = (h, w) if rot % 180 else (w, h)  # footprint along x, along y
+            along = room["w"] if side in "ns" else room["h"]
+            length = fw if side in "ns" else fd
+            steps = [along / 2 - length / 2] + [i * 0.1 for i in range(int((along - length) / 0.1) + 1)]
+            for start in steps:
+                if side in "ns":
+                    cx = room["x"] + start + fw / 2
+                    cy = room["y"] + 0.03 + fd / 2 if side == "n" else room["y"] + room["h"] - 0.03 - fd / 2
+                else:
+                    cy = room["y"] + start + fd / 2
+                    cx = room["x"] + 0.03 + fw / 2 if side == "w" else room["x"] + room["w"] - 0.03 - fw / 2
+                it = {"id": new_id("i"), "type": kind, "cx": r2(cx), "cy": r2(cy), "w": w, "h": h, "rot": rot}
+                if self._item_fits(room, item_box(it)):
+                    return it
+        return None
+
+    def tool_add_furniture(self, room: str, type: str, wall: str | None = None) -> dict:
+        r = self._room(room)
+        if type not in ITEMS:
+            raise ValueError(f"type must be one of {', '.join(ITEMS)}")
+        it = self._place_item(r, type, wall)
+        if not it:
+            raise ValueError(f"no free floor in {r['name']} for a {ITEMS[type][0]} × {ITEMS[type][1]} m {type.replace('_', ' ')}"
+                             f"{' on the ' + wall + ' wall' if wall else ''} (furniture keeps clear of doors and other furniture)")
+        self.plan["items"].append(it)
+        return {"added": type, "room": r["name"], "against": {0: "north", 90: "east", 180: "south", 270: "west"}[it["rot"]] if type not in FREESTANDING else "middle"}
+
+    def tool_remove_furniture(self, room: str, type: str | None = None) -> dict:
+        r = self._room(room)
+        inside = lambda it: r["x"] <= it["cx"] <= r["x"] + r["w"] and r["y"] <= it["cy"] <= r["y"] + r["h"]  # noqa: E731
+        gone = [it for it in self.plan["items"] if inside(it) and (not type or it["type"] == type)]
+        self.plan["items"] = [it for it in self.plan["items"] if it not in gone]
+        return {"removed": len(gone), "room": r["name"]}
+
+    def tool_furnish_room(self, room: str) -> dict:
+        """The usual furniture for the room's type, each piece placed where it fits."""
+        r = self._room(room)
+        a = area(r)
+        plan = {
+            "bedroom": ["bed_double" if a >= 9 else "bed_single", "wardrobe", *(["desk"] if a >= 13 else [])],
+            "living": ["sofa", "armchair", *(["dining_table"] if a >= 24 else []), "plant"],
+            "kitchen": ["counter", "fridge", "stove", "kitchen_sink", *(["dining_table"] if a >= 12 else [])],
+            "dining": ["dining_table", "plant"], "bathroom": ["toilet", "basin", "bathtub" if a >= 5 else "shower"],
+            "office": ["desk"] * max(1, min(6, int(a // 6))), "meeting": ["meeting_table"], "reception": ["desk", "sofa", "plant"],
+            "garage": ["car"], "retail": ["counter", "plant"], "balcony": ["plant", "armchair"],
+        }.get(r["type"], [])
+        placed, skipped = [], []
+        for kind in plan:
+            it = self._place_item(r, kind, None)
+            (placed if it else skipped).append(kind)
+            if it:
+                self.plan["items"].append(it)
+        return {"room": r["name"], "placed": placed, **({"no_room_for": skipped} if skipped else {})}
+
+
+class PlanBuilder(_Furnishing):
     """The assistant's tools. Each call changes the plan only if the result fits; otherwise it says why."""
 
     def __init__(self, plan: dict | None = None) -> None:
@@ -436,3 +550,4 @@ class PlanBuilder:
         self.name = (name or "").strip()[:80] or None
         self.kind = kind if kind in BUILDING_KINDS else None
         return {"ok": True, "warnings_left": result["warnings"], "total_area_m2": result["total_area_m2"]}
+

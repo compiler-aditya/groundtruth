@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from gt.floorplan import PlanBuilder, check, clean, connects, exterior_runs  # noqa: E402
+from gt.floorplan import PlanBuilder, check, clean, connects, exterior_runs, item_box, keep_clear  # noqa: E402
 
 b = PlanBuilder()
 ok = lambda result: (result if "error" not in result else (_ for _ in ()).throw(AssertionError(result["error"])))  # noqa: E731
@@ -79,4 +79,27 @@ assert out["swapped"] == ["Bedroom", "Kitchen"], out
 assert [(r["name"], r["type"], r["x"]) for r in sw.plan["rooms"]] == [("Bedroom", "bedroom", 0), ("Kitchen", "kitchen", 4)]
 assert sw.plan["items"][0]["cx"] == 2.0 and sw.plan["items"][0]["cy"] == 1.5, sw.plan["items"]
 assert "different rooms" in sw.call("swap_rooms", {"room_a": "Kitchen", "room_b": "kitchen"})["error"]
+# furniture is placed by the code: inside its room, against a wall, clear of doorways and of other pieces
+f = PlanBuilder()
+ok(f.call("add_room", {"name": "Living", "type": "living", "width": 5, "depth": 4.5, "x": 0, "y": 0}))
+ok(f.call("add_room", {"name": "Bedroom", "type": "bedroom", "width": 3.6, "depth": 3.4, "next_to": "Living", "side": "south", "align": "start"}))
+ok(f.call("add_room", {"name": "Bath", "type": "bathroom", "width": 2.4, "depth": 2.4, "next_to": "Bedroom", "side": "east", "align": "start"}))
+ok(f.call("connect", {"room_a": "Living", "room_b": "Bedroom"}))
+ok(f.call("connect", {"room_a": "Bedroom", "room_b": "Bath"}))
+ok(f.call("add_entrance", {"room": "Living"}))
+for name in ("Living", "Bedroom", "Bath"):
+    ok(f.call("furnish_room", {"room": name}))
+assert {"sofa", "armchair", "bed_double", "wardrobe", "toilet", "basin", "bathtub"} <= {it["type"] for it in f.plan["items"]}, f.plan["items"]
+assert ok(f.call("add_furniture", {"room": "Living", "type": "desk", "wall": "east"}))["against"] == "east"
+overlap = lambda a, c: a[0] < c[2] - 1e-6 and c[0] < a[2] - 1e-6 and a[1] < c[3] - 1e-6 and c[1] < a[3] - 1e-6  # noqa: E731
+boxes = [item_box(it) for it in f.plan["items"]]
+assert not any(overlap(a, c) for i, a in enumerate(boxes) for c in boxes[i + 1:]), boxes
+for room in f.plan["rooms"]:
+    for box in [x for x in boxes if room["x"] <= (x[0] + x[2]) / 2 <= room["x"] + room["w"] and room["y"] <= (x[1] + x[3]) / 2 <= room["y"] + room["h"]]:
+        assert room["x"] - 1e-6 <= box[0] and box[2] <= room["x"] + room["w"] + 1e-6 and room["y"] - 1e-6 <= box[1] and box[3] <= room["y"] + room["h"] + 1e-6, (room["name"], box)
+        assert not any(overlap(box, z) for z in keep_clear(f.plan, room)), (room["name"], box)
+assert "no free floor in Bath" in f.call("add_furniture", {"room": "Bath", "type": "car"})["error"]
+assert "type must be one of" in f.call("add_furniture", {"room": "Bath", "type": "piano"})["error"]
+assert f.call("remove_furniture", {"room": "Bath", "type": "toilet"})["removed"] == 1
+assert "toilet" not in {it["type"] for it in f.plan["items"]} and check(f.plan)["errors"] == []
 print("floorplan: all checks passed")
