@@ -87,10 +87,11 @@ document.addEventListener("click", (e) => {
 window.addEventListener("hashchange", route);
 async function route() {
   const hash = location.hash || "#/";
-  const page = ["run", "findings", "upload", "how", "plans", "plan/"].find((p) => hash.startsWith(`#/${p}`))?.replace("/", "") || "home";
-  $$(".top nav a[data-nav]").forEach((a) => a.classList.toggle("on", a.dataset.nav === page || (page === "plan" && a.dataset.nav === "plans")));
-  document.body.classList.toggle("studio", page === "plan");
-  if (page === "plans" || page === "plan") { window.scrollTo({ top: 0, behavior: "instant" }); return window.GTPlans.route(hash, app); }
+  const page = ["run", "findings", "upload", "how", "plans", "plan/", "studio"].find((p) => hash.startsWith(`#/${p}`))?.replace("/", "") || "home";
+  const studio = page === "plan" || page === "studio";
+  $$(".top nav a[data-nav]").forEach((a) => a.classList.toggle("on", a.dataset.nav === page || ((studio || page === "plans") && a.dataset.nav === "studio")));
+  document.body.classList.toggle("studio", studio);
+  if (page === "plans" || studio) { window.scrollTo({ top: 0, behavior: "instant" }); return window.GTPlans.route(hash, app); }
   if (page === "run") return renderRun();
   if (page === "findings") return renderFindings();
   if (page === "upload") return renderUpload();
@@ -136,7 +137,7 @@ async function renderHome() {
   app.innerHTML = `
   <section class="hero">
     <div>
-      <a class="newtag" href="#/plans"><span>NEW</span>Simulate sun, routes and space in any plan →</a>
+      <a class="newtag" href="#/studio"><span>NEW</span>Simulate sun, routes and space in any plan →</a>
       <h1>Design it.<br>Live in it.<br><span class="mk">Prove it.</span></h1>
       <p class="lead">GroundTruth is an AI site engineer built on Meta's models. Lay out a building with Muse Wonder, simulate how it lives,
         then check the finished site against the same plan: every finding with its evidence and a drafted report.</p>
@@ -165,9 +166,9 @@ async function renderHome() {
     <p class="lead-c">The models propose and look; the code measures and decides. The same plan carries through all three stages.</p>
     <div class="process">
       <div><span class="bubble on">A</span><h3>Design</h3><p>Describe a building or draw it room by room. Muse Wonder lays out rooms, doors and windows; the code refuses overlaps and dead ends.</p>
-        <div class="models"><span class="chip model">muse-wonder</span></div><a class="go" href="#/plans">Open the studio →</a></div>
+        <div class="models"><span class="chip model">muse-wonder</span></div><a class="go" href="#/studio">Open the studio →</a></div>
       <div><span class="bubble">B</span><h3>Simulate <span class="chip accent">NEW</span></h3><p>Sun through every window over a day, everyone's daily routes, room to move: scored from the geometry, then improved by the AI.</p>
-        <div class="models"><span class="chip model">muse-wonder</span><span class="chip model">geometry</span></div><a class="go" href="#/plans">Simulate a plan →</a></div>
+        <div class="models"><span class="chip model">muse-wonder</span><span class="chip model">geometry</span></div><a class="go" href="#/studio">Simulate a plan →</a></div>
       <div><span class="bubble">C</span><h3>Verify</h3><p>Drone stills, nameplate photos and a narrated phone walk checked against the design. Every failure becomes a finding with its proof.</p>
         <div class="models"><span class="chip model">sam-3.1</span><span class="chip model">muse-spark-1.3</span><span class="chip model">spark-open</span></div>
         <button class="go" data-act="live" ${live ? "" : "disabled"}>Watch it run live →</button></div>
