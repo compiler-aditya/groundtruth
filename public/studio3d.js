@@ -174,7 +174,7 @@ export function create(container, G) {
 
   function frame() {
     const s = state.size, c = state.center;
-    camera.position.set(c.x + s * 0.7, s * 0.95, c.z + s * 1.05);
+    camera.position.set(c.x + s * 0.45, s * 1.5, c.z + s * 0.9); // high enough to see into the rooms, like a doll's house
     orbit.target.copy(c);
     orbit.update();
   }
