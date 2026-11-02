@@ -391,27 +391,25 @@ window.GTPlans = (() => {
   function renderList(app) {
     const mine = Object.values(loadAll()).sort((a, b) => b.updated - a.updated);
     app.innerHTML = `
-    <div class="page-head"><div class="eyebrow">Floor plan studio</div><h1>Design a home, an office or any building, room by room</h1>
-      <p class="muted" style="max-width:780px;margin:0">Drag out rooms, put doors and windows on the walls, furnish it, and watch the areas add up.
-      Homeowners can sketch what they want; architects can make it exact by typing dimensions. The plan is saved in this browser and can be exported as a drawing sheet.</p></div>
-    <section class="block"><h2 class="section" style="font-size:19px">Start a new plan</h2>
+    <div class="page-head"><div class="eyebrow">Studio</div><h1>Start a design</h1></div>
+    <section class="block first">
       <div class="plan-grid"><button class="plan-card ai" data-pact="new-ai"><div class="ai-art" aria-hidden="true">✨</div><div class="pc-body"><b>Describe it to the AI</b>
-        <span class="muted small">Say what you need, for example “a three-bedroom house of about 110 m²”. Muse Wonder lays out the rooms, doors and windows; the code checks every step.</span></div></button>
+        <span class="muted small">Say it, or upload a sketch.</span></div></button>
         ${Object.entries(TEMPLATES).map(([key, t]) => {
         const p = t.make();
         return `<button class="plan-card" data-pact="new" data-template="${key}">${thumb(p)}<div class="pc-body"><b>${esc(t.name)}</b>
-          <span class="muted small">${esc(t.text)}</span>${p.rooms.length ? `<span class="faint tiny">${p.rooms.length} rooms · ${fmtA(totalArea(p))}</span>` : ""}</div></button>`;
+          <span class="faint tiny">${p.rooms.length ? `${p.rooms.length} rooms · ${fmtA(totalArea(p))}` : "Draw it yourself"}</span></div></button>`;
       }).join("")}</div>
-      <p class="small muted" style="margin:12px 0 0">Have a plan file? <button class="link" data-pact="import">Import a plan (.json)</button>
+      <p class="small muted" style="margin:12px 0 0"><button class="link" data-pact="import">Open a plan file (.json)</button>
         <input type="file" id="plan-import" accept=".json,application/json" hidden></p>
     </section>
-    <section class="block"><h2 class="section" style="font-size:19px">Your plans</h2>
+    <section class="block"><h2 class="section" style="font-size:19px">Your designs</h2>
       ${mine.length ? `<div class="plan-grid">${mine.map((p) => `<div class="plan-card mine">
         <a href="#/studio/${esc(p.id)}" class="pc-open">${thumb(p)}</a><div class="pc-body"><a href="#/studio/${esc(p.id)}"><b>${esc(p.name)}</b></a>
         <span class="faint tiny">${esc(KINDS[p.kind] || "Plan")} · ${p.rooms.length} rooms · ${fmtA(totalArea(p))} · edited ${esc(new Date(p.updated).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }))}</span>
         <span class="pc-actions"><a class="btn small" href="#/studio/${esc(p.id)}">Open</a><button class="btn small" data-pact="dup" data-id="${esc(p.id)}">Duplicate</button>
         <button class="btn small" data-pact="del" data-id="${esc(p.id)}">Delete</button></span></div></div>`).join("")}</div>`
-        : `<p class="muted">No plans yet. Pick a template above to start; your plans will be listed here.</p>`}
+        : `<p class="muted">None yet.</p>`}
     </section>`;
     $("#plan-import").onchange = (e) => importFile(e.target.files[0]);
   }
@@ -505,10 +503,10 @@ window.GTPlans = (() => {
             <div class="chat-log" id="chat-log" aria-live="polite"></div>
             <form class="chat-in" id="chat-form">
               <div class="chat-att" id="chat-att"></div>
-              <textarea id="chat-text" rows="3" maxlength="1500" placeholder="Describe a building, or ask for a change…"></textarea>
+              <textarea id="chat-text" rows="3" maxlength="1500" placeholder="Describe a building, or a change…"></textarea>
               <div class="chat-bar"><label class="btn small" title="Attach a sketch, a photo of a drawing or an old plan (JPG, PNG, PDF)">📎 Draft
                 <input type="file" id="chat-file" accept="image/jpeg,image/png,image/webp,.pdf" hidden></label>
-                <span class="tiny muted">Enter to send · Shift+Enter new line</span><button class="btn primary small" type="submit" id="chat-send">Send ↑</button></div>
+                <span class="pe-spacer"></span><button class="btn primary small" type="submit" id="chat-send" title="Enter to send · Shift+Enter for a new line">Send ↑</button></div>
             </form>
           </div>
           <div class="pe-side" id="pe-side"></div>
@@ -593,13 +591,13 @@ window.GTPlans = (() => {
     ["Kitchen", ["counter", "stove", "kitchen_sink", "fridge"]], ["Bathroom", ["toilet", "basin", "shower", "bathtub"]],
     ["Other", ["meeting_table", "stairs", "car"]]];
   const HINTS = {
-    select: "Click a room to edit it · drag to move · drag its edges to resize · drag empty space to pan · scroll to zoom",
-    room: "Drag to draw a room. It snaps to the 10 cm grid and to other walls; hold Alt for free placement.",
-    door: "Click on a wall to put a door there · drag a door to slide it along its wall · Esc when done",
-    window: "Click on a wall to put a window there · drag a window to slide it · Esc when done",
-    furniture: "Pick a piece in the panel on the right, then click on the plan to place it",
-    measure: "Drag to measure a distance · it snaps to room corners · Esc to clear",
-    note: "Click anywhere to pin a note for yourself or your architect",
+    select: "Click to edit · drag to move · drag edges to resize",
+    room: "Drag to draw a room · Alt: no snapping",
+    door: "Click a wall to add a door",
+    window: "Click a wall to add a window",
+    furniture: "Pick a piece, then click to place it",
+    measure: "Drag to measure",
+    note: "Click to pin a note",
   };
   const GRID = 0.1, MIN = 0.5;
   const g = (v, step = GRID) => r2(Math.round(v / step) * step);
@@ -1071,8 +1069,8 @@ window.GTPlans = (() => {
       + scaleBar(W, H) + (sim ? simHud(W) : "");
     if (sim) placeWalkers();
     $("#pe-scale").textContent = `${Math.round(E.view.s)} px/m`;
-    $("#pe-hint").textContent = E.drag ? "" : E.assist.running ? "The AI designer is working… you can pan and zoom"
-      : E.mode === "simulate" ? "Simulation: drag to pan, scroll to zoom. Switch back to Plan to edit." : HINTS[E.tool] || "";
+    $("#pe-hint").textContent = E.drag ? "" : E.assist.running ? "✨ Designing…"
+      : E.mode === "simulate" ? "Back to Plan to edit" : HINTS[E.tool] || "";
     $$("#pe-mode button").forEach((b) => b.classList.toggle("on", b.dataset.mode === E.mode));
     paintTools();
     paintLayers();
@@ -1163,20 +1161,18 @@ window.GTPlans = (() => {
       <div class="pe-row">${num("w", "Width (m)", r.w, `min="${MIN}"`)}${num("h", "Depth (m)", r.h, `min="${MIN}"`)}</div>
       <div class="pe-row">${num("x", "From left (m)", r.x)}${num("y", "From top (m)", r.y)}</div>
       <p class="pe-area">Area <b data-live="area"></b></p>
-      <div class="pe-actions"><button class="btn small" data-pact="dup-sel" title="⌘D">Duplicate</button><button class="btn small danger" data-pact="del-sel" title="Delete key">Delete room</button></div>
-      <p class="tiny muted">Drag the room to move it or its edges to resize; arrow keys nudge by 10 cm (Shift: 50 cm). Doors and windows move with it.</p>`;
+      <div class="pe-actions"><button class="btn small" data-pact="dup-sel" title="⌘D">Duplicate</button><button class="btn small danger" data-pact="del-sel" title="Delete key">Delete room</button></div>`;
   }
 
   function openingPanel(op) {
     const r = roomOf(E.plan, op.room), label = OPENING_TYPES[op.type][0];
     return `<div class="pe-head"><h3>${label}</h3><button class="link small" data-pact="deselect">Plan summary</button></div>
-      <p class="small muted" style="margin:0 0 10px">On the ${{ n: "top", s: "bottom", w: "left", e: "right" }[op.side]} wall of ${esc(r?.name)} (wall ${fmtM(sideLength(r, op.side))} long)</p>
+      <p class="small muted" style="margin:0 0 10px">${esc(r?.name)} · ${{ n: "top", s: "bottom", w: "left", e: "right" }[op.side]} wall · ${fmtM(sideLength(r, op.side))}</p>
       <label class="pe-field wide"><span>Type</span><select data-prop="type">${Object.entries(OPENING_TYPES).map(([k, [l]]) => `<option value="${k}" ${op.type === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       <div class="pe-row">${num("width", "Width (m)", op.width, 'min="0.4"')}${num("at", "Centre from wall start (m)", op.at)}</div>
       ${op.type === "door" ? `<div class="pe-actions"><button class="btn small" data-pact="flip-hinge">Flip hinge side</button>
         <button class="btn small" data-pact="flip-swing">Open ${op.swing === "out" ? "inwards" : "outwards"}</button></div>` : ""}
-      <div class="pe-actions"><button class="btn small danger" data-pact="del-sel">Delete ${label.toLowerCase()}</button></div>
-      <p class="tiny muted">Drag it along the wall to move it. Wall start is the left end of a top or bottom wall, the top end of a side wall.</p>`;
+      <div class="pe-actions"><button class="btn small danger" data-pact="del-sel">Delete ${label.toLowerCase()}</button></div>`;
   }
 
   function palettePanel() {
@@ -1185,7 +1181,6 @@ window.GTPlans = (() => {
       return `<svg viewBox="0 0 56 42" width="56" height="42">${drawItem({ type, cx: 28 / s, cy: 21 / s, w, h, rot: 0 }, (x) => x * s, (y) => y * s, (d) => d * s)}</svg>`;
     };
     return `<div class="pe-head"><h3>Furniture and fixtures</h3><button class="link small" data-pact="tool" data-tool="select">Done</button></div>
-      <p class="small muted" style="margin:0 0 6px">Pick one, then click on the plan to place it.</p>
       ${ITEM_GROUPS.map(([group, types]) => `<h4>${group}</h4><div class="pe-palette">${types.map((t) => `<button class="${E.placing === t ? "on" : ""}" data-pact="pick-item" data-type="${t}"
         title="${ITEM_TYPES[t][0]}">${preview(t)}<span>${ITEM_TYPES[t][0]}</span></button>`).join("")}</div>`).join("")}`;
   }
@@ -1193,8 +1188,7 @@ window.GTPlans = (() => {
   function notePanel(n) {
     return `<div class="pe-head"><h3>Note</h3><button class="link small" data-pact="deselect">Plan summary</button></div>
       <label class="pe-field wide"><span>Text</span><textarea data-prop="text" rows="3" maxlength="200">${esc(n.text)}</textarea></label>
-      <div class="pe-actions"><button class="btn small" data-pact="dup-sel">Duplicate</button><button class="btn small danger" data-pact="del-sel">Delete note</button></div>
-      <p class="tiny muted">Notes print on the exported sheet. Drag the pin to move it; hide or lock all notes in Layers.</p>`;
+      <div class="pe-actions"><button class="btn small" data-pact="dup-sel">Duplicate</button><button class="btn small danger" data-pact="del-sel">Delete note</button></div>`;
   }
 
   const roomAt = (x, y) => E.plan.rooms.find((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
@@ -1204,8 +1198,7 @@ window.GTPlans = (() => {
       <p class="small muted" style="margin:0 0 10px">${room ? `In ${esc(room.name)}` : "Outside the rooms"}</p>
       <div class="pe-row">${num("w", "Width (m)", it.w, 'min="0.2"')}${num("h", "Depth (m)", it.h, 'min="0.2"')}</div>
       <div class="pe-actions"><button class="btn small" data-pact="rotate" title="Shift+R">Rotate 90°</button><button class="btn small" data-pact="dup-sel" title="⌘D">Duplicate</button>
-        <button class="btn small danger" data-pact="del-sel">Delete</button></div>
-      <p class="tiny muted">Drag to move; arrow keys nudge by 10 cm. Width and depth are before rotation.</p>`;
+        <button class="btn small danger" data-pact="del-sel">Delete</button></div>`;
   }
 
   function openingIssues(plan) {
@@ -1224,10 +1217,9 @@ window.GTPlans = (() => {
     return `<h3>Plan summary</h3>
       <div class="pe-stats"><div><b>${fmtA(totalArea(p))}</b><span>floor area</span></div><div><b>${p.rooms.length}</b><span>rooms</span></div>
         <div><b>${doors}</b><span>doors</span></div><div><b>${windows}</b><span>windows</span></div></div>
-      <p class="small muted" style="margin:8px 0 0">${p.items.length} pieces of furniture and fixtures</p>
       ${issues.length ? `<div class="pe-issues"><b>Check the plan</b><ul>${issues.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
       <h4>Rooms</h4>${p.rooms.length ? `<table class="pe-table">${p.rooms.map((r) => `<tr data-pact="select-room" data-id="${r.id}" data-select><td><span class="swatch" style="background:${(ROOM_TYPES[r.type] || ROOM_TYPES.other)[1]}"></span>${esc(r.name)}</td>
-        <td class="num">${fmtA(area(r))}</td></tr>`).join("")}</table>` : `<p class="small muted">No rooms yet. Pick <b>Draw a room</b> (R) and drag on the grid.</p>`}
+        <td class="num">${fmtA(area(r))}</td></tr>`).join("")}</table>` : `<p class="small muted">No rooms yet.</p>`}
       ${p.openings.length ? `<h4>Doors and windows</h4><table class="pe-table">${p.openings.map((op) => `<tr data-pact="select-opening" data-id="${op.id}" data-select>
         <td><b>${marks(p)[op.id]}</b></td><td>${OPENING_TYPES[op.type][0]}</td><td>${esc(roomOf(p, op.room)?.name || "")}</td><td class="num">${fmtM(op.width)}</td></tr>`).join("")}</table>` : ""}
       <h4>Building</h4>
@@ -1236,8 +1228,7 @@ window.GTPlans = (() => {
       <h4>Drawing sheet</h4>
       <div class="pe-row"><label class="pe-field"><span>Sheet number</span><input data-meta="sheet" value="${esc(p.sheet || "A-101")}" maxlength="12"></label>
         <label class="pe-field"><span>Revision</span><input data-meta="revision" value="${esc(p.revision || "A")}" maxlength="4"></label></div>
-      <label class="pe-field wide"><span>Drawn by</span><input data-meta="author" value="${esc(p.author || "")}" maxlength="60" placeholder="Your name or practice"></label>
-      <p class="tiny muted">These go in the title block of the exported sheet (Export, top right).</p>`;
+      <label class="pe-field wide"><span>Drawn by</span><input data-meta="author" value="${esc(p.author || "")}" maxlength="60" placeholder="Your name or practice"></label>`;
   }
 
   function bindFields(side) {
@@ -1388,11 +1379,11 @@ window.GTPlans = (() => {
       <b class="mono" id="hud-hour">${hhmm(hour)}</b><select data-h3="season">${Object.entries(SEASONS).map(([k, v]) => `<option value="${k}" ${E.sim.season === k ? "selected" : ""}>${v}</option>`).join("")}</select>
       <span class="tiny muted">${esc(site.city)}</span></div>`;
     hud.innerHTML = E.mode === "walk" ? `
-      <div class="hud-card">${sunRow}<p class="tiny">Click <b>Look around</b>, then move the mouse to look. <b>W A S D</b> or arrows to walk, <b>Shift</b> to hurry, <b>Esc</b> to free the mouse. On a touch screen, drag to look and hold the arrows.</p>
+      <div class="hud-card">${sunRow}<div class="keys"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk</span><span><kbd>⇧</kbd> run</span><span><kbd>Esc</kbd> mouse</span></div>
         <div class="hud-row"><button class="btn small primary" data-pact="walk-lock">Look around</button><button class="btn small" data-pact="mode" data-mode="3d">Back to 3D</button></div></div>
       <div class="hud-pad">${[["fwd", "▲"], ["left", "◀"], ["back", "▼"], ["right", "▶"]].map(([k, t]) => `<button data-hold="${k}" aria-label="${k}">${t}</button>`).join("")}</div>
       <div class="hud-map" id="hud-map"></div>`
-      : `<div class="hud-card">${sunRow}<p class="tiny">Drag to orbit · scroll to zoom · right-drag to pan. Shadows follow the sun at ${esc(site.city)}.</p>
+      : `<div class="hud-card">${sunRow}<div class="keys"><span><kbd>drag</kbd> orbit</span><span><kbd>scroll</kbd> zoom</span><span><kbd>right-drag</kbd> pan</span></div>
         <div class="hud-row"><button class="btn small primary" data-pact="mode" data-mode="walk">🚶 Walk inside</button></div></div>`;
     for (const el of $$("[data-h3]", hud)) {
       el.oninput = () => {
@@ -1509,14 +1500,14 @@ window.GTPlans = (() => {
     const notes = (xs) => (xs.length ? `<ul class="sim-notes">${xs.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : `<p class="small muted">Nothing to flag.</p>`);
     return `<div class="pe-head"><h3>Simulation</h3><button class="link small" data-pact="mode" data-mode="design">Back to design</button></div>
       <div class="sim-scores">${card("Overall", r.overall)}${card("Daylight", r.scores.daylight)}${card("Movement", r.scores.movement)}${card("Space", r.scores.space)}</div>
-      <p class="tiny muted" style="margin:6px 0 12px">Measured from the plan's geometry: rules of thumb to compare options, not a building-code check.
+      <p class="tiny muted" style="margin:6px 0 12px">Rules of thumb, not a code check ·
         <a href="https://github.com/compiler-aditya/groundtruth/blob/main/docs/simulation.md" target="_blank" rel="noopener">How it's scored</a>${S.stale ? " · <b>The plan changed</b>: <button class='link small' data-pact='sim-rerun'>run again</button>" : ""}</p>
       ${settings}
       <h4>☀ Sun on ${SEASONS[S.season]} in ${esc(site.city)}</h4>
       <div class="sim-time"><button class="btn small" data-pact="sim-sun-play" title="Play the day">${S.sunTimer ? "❚❚" : "▶"}</button>
         <input type="range" min="0" max="${samples.length - 1}" value="${S.t}" data-sim="t" aria-label="Time of day">
         <span class="mono small">${sample ? hhmm(sample.hour) : ""}</span></div>
-      <p class="tiny muted" style="margin:2px 0 8px">Solar time. Sunrise to sunset: ${r.sun.daylight_hours} h of daylight.</p>
+      <p class="tiny muted" style="margin:2px 0 8px">${r.sun.daylight_hours} h of daylight</p>
       ${r.daylight.rooms.length ? `<table class="pe-table"><tr><td class="muted small">Room</td><td class="num muted small">Direct sun</td><td class="num muted small">Windows</td></tr>${daylightRows}</table>` : ""}
       ${notes(r.daylight.notes)}
       <h4>🚶 A day of moving around</h4>
@@ -1531,7 +1522,7 @@ window.GTPlans = (() => {
     "Make it easier for a wheelchair user"];
   function simAi() {
     const A = E.assist, S = E.sim, c = S.compare;
-    if (A.running) return `<h4>✨ Improving with AI</h4><p class="small muted"><span class="spin"></span> Muse Wonder is changing the plan and re-running the simulation…</p>
+    if (A.running) return `<h4>✨ Improving with AI</h4><p class="small muted"><span class="spin"></span> Changing the plan, re-simulating…</p>
       <div class="assist-feed">${feedHtml(A)}</div>`;
     const row = (k, label) => {
       const b = c.before[k], a = c.after[k];
@@ -1545,8 +1536,7 @@ window.GTPlans = (() => {
         ${c.summary ? `<p>${esc(c.summary)}</p>` : ""}<span class="tiny muted">${c.seconds} s · $${(c.cost || 0).toFixed(2)}</span>
         ${c.changed ? `<div class="pe-actions" style="margin-top:8px"><button class="btn small" data-pact="sim-keep">Keep it</button><button class="btn small" data-pact="sim-undo">Undo</button></div>` : ""}</div>` : "";
     return `<h4>✨ Improve with AI</h4>
-      <p class="tiny muted" style="margin:0 0 8px">Muse Wonder changes the plan, re-runs this simulation after each change and undoes what scores worse.
-        The code won't let it finish if the overall score went down.</p>${compare}
+      <p class="tiny muted" style="margin:0 0 8px">Only changes that score higher are kept.</p>${compare}
       <textarea id="sim-goal" rows="2" maxlength="800" placeholder="e.g. ${esc(SIM_GOALS[0])}">${esc(S.goal || "")}</textarea>
       <div class="pe-chips">${SIM_GOALS.map((t) => `<button data-pact="sim-goal" data-text="${esc(t)}" title="${esc(t)}">${esc(short(t))}</button>`).join("")}</div>
       <button class="btn primary" style="width:100%" data-pact="sim-improve" ${AI.ready ? "" : "disabled"}>Improve the plan</button>
@@ -1692,12 +1682,10 @@ window.GTPlans = (() => {
   function chatHello() {
     const empty = !E.plan.rooms.length, ex = empty ? EX_NEW : EX_EDIT;
     return `<div class="msg-a hello"><div class="av">W</div><div class="body">
-      <b>${empty ? "Hi, I'm your AI designer." : "Ready when you are."}</b>
-      <p>${empty ? "Tell me what you want to build, or attach a photo of a sketch, a drawing or an old plan, and I'll lay it out on the canvas."
-        : "Ask me for any change in plain words. I'll make it on the canvas, and you can undo each reply."}
-        Then ask for changes: <i>“make the kitchen bigger”</i>, <i>“add a garage on the left”</i>, <i>“move the bathroom next to the bedroom”</i>.</p>
+      <b>${empty ? "What shall we build?" : "What should change?"}</b>
+      ${empty ? `<p class="small muted">Or 📎 attach a sketch.</p>` : ""}
       <div class="pe-chips">${ex.map((t) => `<button type="button" data-pact="chat-example" data-text="${esc(t)}" title="${esc(t)}">${esc(short(t))}</button>`).join("")}</div>
-      <p class="tiny muted">I use Muse Wonder to design and Muse Spark 1.3 to read drafts; the code checks every room, door and window. You can also draw by hand with the tools on the left.</p></div></div>`;
+      <div class="hello-models"><span class="chip model">muse-wonder</span><span class="chip model">muse-spark-1.3</span></div></div></div>`;
   }
 
   function chatMessage(m, i, lastAi) {
