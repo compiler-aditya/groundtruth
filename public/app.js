@@ -124,11 +124,10 @@ const MODELS = [
   ["muse-spark-1.3", "Reads nameplates and title blocks, counts drawing symbols and module grids, judges claims on stills, drafts documents."],
   ["muse-spark-open", "On Baseten: hears and watches each walkthrough clip, and flags where the narration and the picture disagree."],
 ];
-// 5x5 pixel icons: o = accent, m = light accent, anything else = grey
-const ICONS = { design: "ooooo" + "o...o" + "o.mmo" + "o...o" + "ooooo", simulate: "..o.." + ".mmm." + "omomo" + ".mmm." + "..o..",
-  verify: "....o" + "...om" + "o.om." + ".om.." + "....." };
-const dots = (p) => `<div class="dots" aria-hidden="true">${[...p.padEnd(25, ".").slice(0, 25)].map((c) => `<i class="${c === "o" ? "on" : c === "m" ? "mid" : ""}"></i>`).join("")}</div>`;
-const win = (label, body, cls = "") => `<div class="win ${cls}"><div class="win-bar"><i></i><i></i><i></i><span class="lbl">[ ${esc(label)} ]</span></div><div class="win-body">${body}</div></div>`;
+// A drawing sheet: crop marks, the content, and a title block (drawing, sheet number, revision).
+const sheet = (drawing, number, body, cls = "") => `<div class="sheet ${cls}"><div class="sheet-body">${body}</div>
+  <div class="sheet-title"><div><small>Drawing</small><b>${drawing}</b></div><div><small>Sheet</small><b>${esc(number)}</b></div><div><small>Rev</small><b>A</b></div></div></div>`;
+const label = (n, text) => `<div class="eyebrow"><span class="n">${n}</span>${esc(text)}</div>`;
 
 async function renderHome() {
   if (!S.pkg) app.innerHTML = `<p class="muted" style="padding:80px 0">Loading…</p>`;
@@ -136,63 +135,66 @@ async function renderHome() {
   const p = S.pkg, live = liveReady();
   app.innerHTML = `
   <section class="hero">
-    <div class="hero-grid"></div><div class="hero-glow"></div>
-    <span class="tag" style="left:14px;top:16px">[ SITE ]</span><span class="tag" style="right:14px;top:16px">[ DESIGN ]</span>
-    <span class="tag" style="left:14px;bottom:24px">[ .NCR ]</span><span class="tag" style="right:14px;bottom:24px">[ VERIFIED ]</span>
-    <span class="spark" style="left:calc(50% - 404px);top:105px">✦</span><span class="spark" style="left:calc(50% + 358px);top:105px">✦</span>
-    <div class="hero-in">
-      <a class="badge" href="#/how">Muse Wonder · Muse Spark · SAM 3.1 <span class="go">›</span></a>
-      <h1>From floor plan<br><span class="hl">to verified site</span></h1>
-      <p class="lead">Design a building with an AI that measures every step, simulate how it lives, then check the built site against it.
-        Every finding comes with its evidence and a drafted report.</p>
-      <div class="ctas"><button class="btn primary big" data-act="live" ${live ? "" : "disabled"}>▶ Watch the site check live</button>
+    <div>
+      <a class="newtag" href="#/plans"><span>NEW</span>Simulate sun, routes and space in any plan →</a>
+      <h1>Design it.<br>Live in it.<br><span class="mk">Prove it.</span></h1>
+      <p class="lead">GroundTruth is an AI site engineer built on Meta's models. Lay out a building with Muse Wonder, simulate how it lives,
+        then check the finished site against the same plan: every finding with its evidence and a drafted report.</p>
+      <div class="ctas"><button class="btn primary big" data-act="live" ${live ? "" : "disabled"}>Watch the site check live →</button>
         <button class="btn big" data-act="replay">Play a recorded run</button></div>
       ${live ? "" : `<p class="note-off">Live runs are off on this deployment (no API key). The recorded run still works.</p>`}
-      <form class="ask" id="ask">
-        <textarea id="ask-text" rows="2" maxlength="800" aria-label="Describe a building to design"
-          placeholder="Describe a building to design… e.g. a three-bedroom house of about 110 m² with an open kitchen"></textarea>
-        <div class="bar"><span>✦ Muse Wonder lays it out, room by room</span><button class="btn primary small" type="submit" ${live ? "" : "disabled"}>Design</button></div>
-      </form>
+      <form id="brief"><fieldset class="brief"><legend>Design brief</legend><div class="row">
+        <textarea id="brief-text" rows="2" maxlength="800" aria-label="Describe a building to design" placeholder="e.g. a three-bedroom house of about 110 m² with an open kitchen"></textarea>
+        <button class="btn primary small" type="submit" ${live ? "" : "disabled"}>Lay it out →</button></div></fieldset></form>
+    </div>
+    <div>
+      ${sheet("Two-bedroom home · sun and routes", "SIM-01", `<div id="hero-plan"></div>`, "hero-sheet")}
+      <div class="hero-cap"><span><i style="background:#ffd54a"></i>sun at 10:00 on 21 Dec, Delhi</span><span><i style="background:var(--accent)"></i>a resident's morning route</span>
+        <span id="hero-score"></span></div>
     </div>
   </section>
-  <div class="proof">
-    <div><b>9<span class="faint">/9</span></b>planted problems found</div>
-    <div><b>7<span class="faint">/7</span></b>correct items passed</div>
-    <div><b>≈1 min</b>and $0.44 per live site check</div>
-    <div><b><span class="hl">4</span></b>Meta models working together</div>
+  <div class="ruler">
+    <div><b>9/9</b><span>planted problems found by the site check</span></div>
+    <div><b>7/7</b><span>correct items passed, no false alarms</span></div>
+    <div><b>~1 min</b><span>and $0.44 per live site check</span></div>
+    <div><b class="hl">4</b><span>Meta models, each doing what it's good at</span></div>
   </div>
   <section class="block" id="how">
-    <div class="center"><div class="eyebrow">How it works</div>
-      <h2 class="section">Design it, live in it,<br><span class="hl">then prove it was built right</span></h2>
-      <p class="lead-c">One plan from the first sketch to handover. The models propose and look; the code measures and decides.</p></div>
-    <div class="trio">
-      <div>${dots(ICONS.design)}<h3>Design</h3><p>Describe a building or draw it room by room. Muse Wonder lays out rooms, doors and windows; the code refuses overlaps and dead ends.</p>
-        <div class="models"><span class="chip model">muse-wonder</span></div><a class="go" href="#/plans">Open the studio ›</a></div>
-      <div>${dots(ICONS.simulate)}<h3>Simulate <span class="chip accent">NEW</span></h3><p>Sun through every window over a day, everyone's daily routes, room to move. Scored from the geometry, then improved by the AI.</p>
-        <div class="models"><span class="chip model">muse-wonder</span><span class="chip model">geometry</span></div><a class="go" href="#/plans">Simulate a plan ›</a></div>
-      <div>${dots(ICONS.verify)}<h3>Verify</h3><p>Drone stills, nameplate photos and a narrated phone walk checked against the design. Every failure becomes a finding with its proof.</p>
+    ${label("01", "How it works")}
+    <h2 class="section">One plan, from the first sketch <span class="hl">to handover.</span></h2>
+    <p class="lead-c">The models propose and look; the code measures and decides. The same plan carries through all three stages.</p>
+    <div class="process">
+      <div><span class="bubble on">A</span><h3>Design</h3><p>Describe a building or draw it room by room. Muse Wonder lays out rooms, doors and windows; the code refuses overlaps and dead ends.</p>
+        <div class="models"><span class="chip model">muse-wonder</span></div><a class="go" href="#/plans">Open the studio →</a></div>
+      <div><span class="bubble">B</span><h3>Simulate <span class="chip accent">NEW</span></h3><p>Sun through every window over a day, everyone's daily routes, room to move: scored from the geometry, then improved by the AI.</p>
+        <div class="models"><span class="chip model">muse-wonder</span><span class="chip model">geometry</span></div><a class="go" href="#/plans">Simulate a plan →</a></div>
+      <div><span class="bubble">C</span><h3>Verify</h3><p>Drone stills, nameplate photos and a narrated phone walk checked against the design. Every failure becomes a finding with its proof.</p>
         <div class="models"><span class="chip model">sam-3.1</span><span class="chip model">muse-spark-1.3</span><span class="chip model">spark-open</span></div>
-        <button class="go" data-act="live" ${live ? "" : "disabled"}>Watch it run live ›</button></div>
+        <button class="go" data-act="live" ${live ? "" : "disabled"}>Watch it run live →</button></div>
     </div>
   </section>
   ${p ? packageSection(p) : ""}
   <section class="block" id="rules">
-    <div class="center"><div class="eyebrow">Built to be checked</div>
-      <h2 class="section">The model chooses what to check.<br><span class="hl">Code decides the verdict.</span></h2>
-      <p class="lead-c">Construction QA has to hold up in a dispute, so every number traces back to a measurement, a model and an image.</p></div>
-    <div class="grid2" style="margin-top:36px">
-      ${win("rules", `<div class="rules">${RULES.map(([b, t]) => `<p><b>${esc(b)}</b><span class="muted">${esc(t)}</span></p>`).join("")}</div>`)}
-      ${win("models", `<div class="table-wrap"><table class="models-table">${MODELS.map(([m, t]) => `<tr><td>${esc(m)}</td><td>${esc(t)}</td></tr>`).join("")}</table></div>
+    ${label("03", "Built to be checked")}
+    <h2 class="section">The model chooses what to check. <span class="hl">Code decides the verdict.</span></h2>
+    <p class="lead-c">Construction QA has to hold up in a dispute, so every number traces back to a measurement, a model and an image.</p>
+    <div class="grid2" style="margin-top:40px">
+      ${sheet("Rules the agent works under", "G-001", `<div class="rules">${RULES.map(([b, t], i) => `<p data-n="${i + 1}"><b>${esc(b)}</b><span class="muted">${esc(t)}</span></p>`).join("")}</div>`)}
+      ${sheet("Meta's models and their jobs", "G-002", `<div class="table-wrap"><table class="models-table">${MODELS.map(([m, t]) => `<tr><td>${esc(m)}</td><td>${esc(t)}</td></tr>`).join("")}</table></div>
         <p class="small muted" style="margin:14px 0 0">What we measured about each model, including where it failed and how we worked around it, is in the
-        <a href="https://github.com/compiler-aditya/groundtruth#how-it-uses-metas-models-and-what-we-learned" target="_blank" rel="noopener">README ›</a></p>`)}
+        <a href="https://github.com/compiler-aditya/groundtruth#how-it-uses-metas-models-and-what-we-learned" target="_blank" rel="noopener">README →</a></p>`)}
     </div>
   </section>`;
-  $("#ask").onsubmit = (e) => {
+  $("#brief").onsubmit = (e) => {
     e.preventDefault();
-    const text = $("#ask-text").value.trim();
-    if (text.length < 3) return $("#ask-text").focus();
+    const text = $("#brief-text").value.trim();
+    if (text.length < 3) return $("#brief-text").focus();
     window.GTPlans.designFrom(text);
   };
+  window.GTPlans.heroPreview($("#hero-plan")).then((sim) => {
+    const el = $("#hero-score");
+    if (sim && el) el.innerHTML = `<b style="color:var(--ink)">${sim.overall}</b>/100 overall · daylight ${sim.scores.daylight} · movement ${sim.scores.movement} · space ${sim.scores.space}`;
+  });
 }
 
 function packageSection(p) {
@@ -201,16 +203,16 @@ function packageSection(p) {
   const tabs = [["captures", `What the site captured (${p.captures.length})`], ["design", "The design"], ...(p.planted ? [["key", "Answer key"]] : [])];
   return `<section class="block" id="package">
     <div class="pkg-head">
-      <div><div class="eyebrow">Live demo · site check</div>
-        <h2 class="section">${problems || "Some"} problems are hidden on this site.<br><span class="hl">Can the agent find them?</span></h2>
+      <div>${label("02", "Live demo · site check")}
+        <h2 class="section">${problems || "Some"} problems are hidden on this site. <span class="hl">Can the agent find them?</span></h2>
         <p class="lead-c">A solar site's design package (quantities, an equipment schedule, a drawing register) against what the site captured:
           ${n("drone_still")} drone stills, ${n("nameplate_photo")} equipment nameplates, ${n("drawing_sheet")} drawing sheets and a narrated phone walk.</p></div>
-      <div class="ctas"><button class="btn primary" data-act="live" ${liveReady() ? "" : "disabled"}>▶ Run it live</button>
+      <div class="ctas"><button class="btn primary" data-act="live" ${liveReady() ? "" : "disabled"}>Run it live →</button>
         <button class="btn" data-act="replay">Play the recorded run</button></div>
     </div>
-    ${win(`${p.id || "demo"} · ${p.captures.length} captures · 3 design documents`, `
-      <div class="tabs" role="tablist" id="home-tabs">${tabs.map(([k, label]) =>
-        `<button role="tab" data-tab="${k}" class="${k === "key" ? "spoiler " : ""}${S.homeTab === k ? "on" : ""}">${esc(label)}</button>`).join("")}</div>
+    ${sheet(`${esc(p.name)}`, "S-001", `
+      <div class="tabs" role="tablist" id="home-tabs">${tabs.map(([k, lbl]) =>
+        `<button role="tab" data-tab="${k}" class="${k === "key" ? "spoiler " : ""}${S.homeTab === k ? "on" : ""}">${esc(lbl)}</button>`).join("")}</div>
       <div id="tab-body">${homeTab(p)}</div>`)}
   </section>`;
 }
@@ -876,7 +878,7 @@ function paintChrome() {
   $("#cost").textContent = run.mode === "replay" ? "free replay" : `$${(cost || 0).toFixed(2)}${run.report ? "" : " so far"}`;
   setHtml($("#skip"), run.mode === "replay" && !finished && !run.skip ? `<button class="btn small" data-act="skip">Skip to the end ⏩</button>` : "");
   setHtml($("#stepper"), STEPS.map(([title, sub], i) => `<div class="st ${i < run.step ? "done" : i === run.step && !run.error ? "now" : ""}">
-    <b>${i < run.step ? "✓ " : ""}${esc(title)}</b><span>${esc(sub)}</span></div>`).join(""));
+    <b>${esc(title)}</b><span>${esc(sub)}</span></div>`).join(""));
   const c = counts(run);
   setHtml($("#tally"), `<div><b>${c.checks}</b><span>checks done</span></div><div><b style="color:var(--pass)">${c.passed}</b><span>passed</span></div>
     <div><b>${run.findings.length}</b><span>findings</span></div>

@@ -1449,5 +1449,40 @@ window.GTPlans = (() => {
     newPlan("blank");
   }
 
-  return { route, drawPlan, fitView, walls, TEMPLATES, designFrom };
+  // The home page's drawing: the two-bedroom template with the simulation's sun at 10:00 on 21 December in Delhi and
+  // a resident's morning route (a dot walks it). Without the server it shows the plan alone. Returns the simulation.
+  async function heroPreview(el) {
+    const plan = TEMPLATES.home.make(), W = 560, H = 440, view = fitView(plan, W, H, 28);
+    const svg = (overlay) => `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="A two-bedroom plan with patches of sunlight and a walking route">
+      <rect width="${W}" height="${H}" fill="${PAPER}"/>${drawPlan(plan, view, { overlay })}</svg>`;
+    el.innerHTML = svg();
+    try {
+      const res = await fetch("/api/plan/simulate", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan: { rooms: plan.rooms, openings: plan.openings, items: plan.items }, settings: { latitude: 28.6, season: "winter", north: 0 } }) });
+      if (!res.ok) return null;
+      const sim = await res.json();
+      const sample = sim.sun.samples.find((x) => x.hour >= 10) || sim.sun.samples[0];
+      const route = (sim.movement.people[0]?.legs || []).slice(0, 4).filter((l) => l.ok).flatMap((l) => l.path);
+      el.innerHTML = svg((X, Y, L) => {
+        const out = (sample?.patches || []).map((p) => `<polygon points="${p.poly.map(([x, y]) => `${X(x)},${Y(y)}`).join(" ")}" fill="#ffd54a" fill-opacity=".7" stroke="#e8a900"/>`);
+        if (route.length > 1) {
+          const d = route.map(([x, y], i) => `${i ? "L" : "M"}${X(x)},${Y(y)}`).join(" ");
+          out.push(`<path d="${d}" fill="none" stroke="${ACCENT}" stroke-width="2.2" stroke-dasharray="6 5" stroke-linejoin="round"/>
+            <circle r="7" fill="${ACCENT}" stroke="#fff" stroke-width="2.5"><animateMotion dur="9s" repeatCount="indefinite" path="${d}"/></circle>`);
+        }
+        for (const r of plan.rooms) {
+          const h = sim.sun.rooms[r.id]?.sun_hours;
+          if (h == null || L(r.w) < 70) continue;
+          out.push(`<rect x="${X(r.x) + 6}" y="${Y(r.y) + 6}" width="54" height="18" rx="9" fill="${h >= 3 ? "#f2b600" : h > 0 ? "#f7d774" : "#d6d3cc"}"/>
+            <text x="${X(r.x) + 33}" y="${Y(r.y) + 19}" text-anchor="middle" font-size="11" font-weight="700" fill="#3b2f00">☀ ${+h.toFixed(2)} h</text>`);
+        }
+        return out.join("");
+      });
+      return sim;
+    } catch {
+      return null;
+    }
+  }
+
+  return { route, drawPlan, fitView, walls, TEMPLATES, designFrom, heroPreview };
 })();
