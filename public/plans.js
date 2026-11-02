@@ -29,6 +29,9 @@ window.GTPlans = (() => {
     stairs: ["Stairs", 1.0, 3.0], car: ["Car", 1.9, 4.5], plant: ["Plant", 0.5, 0.5],
   };
   const OPENING_TYPES = { door: ["Door", 0.9], window: ["Window", 1.2], opening: ["Open passage", 1.2] };
+  const FLOORS = { wood: ["Wood", 0xc69c6d], tile: ["Tiles", 0xdcd7ce], carpet: ["Carpet", 0x9fa8b3], stone: ["Stone", 0xbdb6aa], concrete: ["Concrete", 0xaaa7a1] };
+  const defaultFloor = (type) => ({ bathroom: "tile", kitchen: "tile", utility: "tile", balcony: "stone", garage: "concrete", storage: "concrete", office: "carpet",
+    meeting: "carpet", retail: "tile", reception: "stone" }[type] || "wood");
   const area = (r) => r.w * r.h;
   const totalArea = (plan) => plan.rooms.reduce((s, r) => s + area(r), 0);
 
@@ -175,30 +178,42 @@ window.GTPlans = (() => {
 
   /* ---------------- drawing ---------------- */
   // Returns SVG markup for a plan in screen pixels. opts: { width, height, grid, labels, sel, hover, dims }
+  const NO_HIDE = new Set();
   function drawPlan(plan, view, opts = {}) {
-    const { s, tx, ty } = view;
+    const { s, tx, ty } = view, hide = opts.hide || NO_HIDE;
     const X = (x) => r2(tx + x * s), Y = (y) => r2(ty + y * s), L = (d) => r2(d * s);
     const out = [];
-    if (opts.grid) out.push(grid(view, opts.width, opts.height));
-    for (const r of plan.rooms) {
+    if (opts.grid && !hide.has("grid")) out.push(grid(view, opts.width, opts.height));
+    if (!hide.has("rooms")) for (const r of plan.rooms) {
       out.push(`<rect class="room" data-kind="room" data-id="${r.id}" x="${X(r.x)}" y="${Y(r.y)}" width="${L(r.w)}" height="${L(r.h)}" fill="${(ROOM_TYPES[r.type] || ROOM_TYPES.other)[1]}" fill-opacity=".72"/>`);
     }
-    for (const it of plan.items) out.push(drawItem(it, X, Y, L));
-    for (const w of walls(plan)) {
+    if (!hide.has("items")) for (const it of plan.items) out.push(drawItem(it, X, Y, L));
+    if (!hide.has("walls")) for (const w of walls(plan)) {
       const ext = (cap) => (cap ? w.t / 2 : 0);
       const a = w.a - ext(w.ca), b = w.b + ext(w.cb);
       out.push(w.o === "h"
         ? `<line x1="${X(a)}" y1="${Y(w.c)}" x2="${X(b)}" y2="${Y(w.c)}" stroke="${INK}" stroke-width="${Math.max(1.5, L(w.t))}"/>`
         : `<line x1="${X(w.c)}" y1="${Y(a)}" x2="${X(w.c)}" y2="${Y(b)}" stroke="${INK}" stroke-width="${Math.max(1.5, L(w.t))}"/>`);
     }
-    for (const op of plan.openings) out.push(drawOpening(plan, op, X, Y, L));
-    if (opts.labels !== false) for (const r of plan.rooms) {
+    if (!hide.has("openings")) for (const op of plan.openings) out.push(drawOpening(plan, op, X, Y, L));
+    if (opts.labels !== false && !hide.has("labels")) for (const r of plan.rooms) {
       const w = L(r.w), h = L(r.h), cx = X(r.x + r.w / 2), cy = Y(r.y + r.h / 2);
       if (w < 34 || h < 22) continue;
       const big = w > 70 && h > 40;
       const halo = `stroke="${PAPER}" stroke-width="3" stroke-opacity=".85" paint-order="stroke" stroke-linejoin="round"`;
       out.push(`<text class="lbl" x="${cx}" y="${cy - (big ? 3 : -4)}" text-anchor="middle" font-size="${big ? 12.5 : 11}" font-weight="600" fill="${INK}" ${halo}>${esc(fit(r.name, w))}</text>`);
       if (big) out.push(`<text class="lbl" x="${cx}" y="${cy + 13}" text-anchor="middle" font-size="11" fill="#5a5850" ${halo}>${fmtA(area(r))}</text>`);
+    }
+    if (opts.dims && !hide.has("dims")) for (const r of plan.rooms) { // each room's width along its top, depth along its left side
+      if (L(r.w) < 50 || L(r.h) < 40) continue;
+      out.push(`<g class="lbl" font-size="10" fill="#6b6b6b" font-family="JetBrains Mono, monospace"><text x="${X(r.x + r.w / 2)}" y="${Y(r.y) + 13}" text-anchor="middle">${r.w.toFixed(2)}</text>
+        <text transform="translate(${X(r.x) + 11} ${Y(r.y + r.h / 2)}) rotate(-90)" text-anchor="middle">${r.h.toFixed(2)}</text></g>`);
+    }
+    if (!hide.has("notes")) for (const n of plan.notes || []) {
+      const x = X(n.x), y = Y(n.y), text = fit(n.text || "Note", 200), w = text.length * 6.4 + 14;
+      out.push(`<g class="note" data-kind="note" data-id="${n.id}"><circle cx="${x}" cy="${y}" r="5" fill="${ACCENT}" stroke="#fff" stroke-width="1.5"/>
+        <rect x="${x + 8}" y="${y - 10}" width="${r2(w)}" height="20" rx="3" fill="#fff8e6" stroke="#e8c37a"/>
+        <text x="${x + 15}" y="${y + 4}" font-size="11.5" fill="${INK}">${esc(text)}</text></g>`);
     }
     if (opts.overlay) out.push(opts.overlay(X, Y, L));
     return out.join("");
@@ -382,9 +397,9 @@ window.GTPlans = (() => {
     </section>
     <section class="block"><h2 class="section" style="font-size:19px">Your plans</h2>
       ${mine.length ? `<div class="plan-grid">${mine.map((p) => `<div class="plan-card mine">
-        <a href="#/plan/${esc(p.id)}" class="pc-open">${thumb(p)}</a><div class="pc-body"><a href="#/plan/${esc(p.id)}"><b>${esc(p.name)}</b></a>
+        <a href="#/studio/${esc(p.id)}" class="pc-open">${thumb(p)}</a><div class="pc-body"><a href="#/studio/${esc(p.id)}"><b>${esc(p.name)}</b></a>
         <span class="faint tiny">${esc(KINDS[p.kind] || "Plan")} · ${p.rooms.length} rooms · ${fmtA(totalArea(p))} · edited ${esc(new Date(p.updated).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }))}</span>
-        <span class="pc-actions"><a class="btn small" href="#/plan/${esc(p.id)}">Open</a><button class="btn small" data-pact="dup" data-id="${esc(p.id)}">Duplicate</button>
+        <span class="pc-actions"><a class="btn small" href="#/studio/${esc(p.id)}">Open</a><button class="btn small" data-pact="dup" data-id="${esc(p.id)}">Duplicate</button>
         <button class="btn small" data-pact="del" data-id="${esc(p.id)}">Delete</button></span></div></div>`).join("")}</div>`
         : `<p class="muted">No plans yet. Pick a template above to start; your plans will be listed here.</p>`}
     </section>`;
@@ -394,7 +409,7 @@ window.GTPlans = (() => {
   function newPlan(key) {
     const plan = (TEMPLATES[key] || TEMPLATES.blank).make();
     savePlan(plan);
-    location.hash = `#/plan/${plan.id}`;
+    location.hash = `#/studio/${plan.id}`;
   }
 
   function importFile(file) {
@@ -405,7 +420,7 @@ window.GTPlans = (() => {
       plan.id = uid("p");
       plan.name = String(plan.name || "Imported plan").slice(0, 80);
       savePlan(plan);
-      location.hash = `#/plan/${plan.id}`;
+      location.hash = `#/studio/${plan.id}`;
     }).catch(() => alert("That file isn't a GroundTruth plan (.json)."));
   }
 
@@ -427,7 +442,8 @@ window.GTPlans = (() => {
 
   /* ---------------- editor ---------------- */
   const E = { plan: null, view: null, sel: null, tool: "select", undo: [], redo: [], drag: null, hover: null, ghost: null, guides: [], space: false, saveTimer: 0, savedOk: true,
-    assist: { open: false, running: false, mode: "edit", text: "", feed: [], result: null, error: null }, flash: new Set(), openAssist: false };
+    assist: { open: false, running: false, mode: "edit", text: "", feed: [], result: null, error: null }, flash: new Set(), openAssist: false,
+    tab: "ai", layers: { hide: new Set(["dims"]), lock: new Set() }, layerOpen: new Set(), snap: true, clip: null, measure: null, chat: [], chatFile: null, three: null };
   const AI = { ready: true };
   fetch("/api/health").then((r) => r.json()).then((h) => { AI.ready = h?.keys?.meta !== false; }).catch(() => {});
   const EDIT_ACTIONS = {};
@@ -435,42 +451,63 @@ window.GTPlans = (() => {
   function renderEditor(app, id) {
     const plan = getPlan(id);
     if (!plan) {
-      app.innerHTML = `<div class="page-head"><h1>Plan not found</h1><p class="muted">It may have been made in another browser. Plans are saved per browser.</p>
-        <a class="btn" href="#/plans">← All plans</a></div>`;
+      app.innerHTML = `<div class="page-head"><h1>Design not found</h1><p class="muted">It may have been made in another browser. Designs are saved per browser.</p>
+        <a class="btn" href="#/plans">← All projects</a></div>`;
       return;
     }
+    E.three?.pause();
+    E.three = null;
+    plan.notes = plan.notes || [];
+    plan.site = plan.site || defaultSite();
     Object.assign(E, { plan, sel: null, tool: "select", undo: [], redo: [], drag: null, hover: null, ghost: null, guides: [], view: null, flash: new Set(),
-      assist: { open: E.openAssist, running: false, mode: plan.rooms.length ? "edit" : "new", text: "", feed: [], result: null, error: null } });
+      measure: null, chat: plan.chat || [], chatFile: null, tab: E.openAssist || !plan.rooms.length ? "ai" : E.tab || "ai",
+      assist: { open: false, running: false, mode: "edit", text: "", feed: [], result: null, error: null } });
     E.openAssist = false;
-    if (E.prefill) { E.assist.text = E.prefill; E.prefill = ""; }
     stopSim();
     E.mode = "design";
-    E.sim = { result: null, stale: true, loading: false, error: null, t: 0, season: "winter", tracks: [], walking: false, sunTimer: 0, walkFrame: 0 };
-    plan.site = plan.site || defaultSite();
+    E.sim = { result: null, stale: true, loading: false, error: null, t: 0, season: "winter", tracks: [], walking: false, sunTimer: 0, walkFrame: 0, hour: 10 };
     app.innerHTML = `
-    <div class="pe" id="plan-editor">
+    <div class="pe studio" id="plan-editor">
       <div class="pe-top">
-        <a class="btn small" href="#/plans" title="All plans">←</a>
-        <input class="pe-name" id="pe-name" value="${esc(plan.name)}" aria-label="Plan name" maxlength="80">
+        <details class="pe-menu left" id="pe-file"><summary class="btn small" title="Projects and files">☰ File</summary><div class="pe-menu-list">
+          <button data-pact="file-new">New blank design</button><a href="#/plans">All projects and templates</a>
+          <button data-pact="file-import">Open a plan file (.json)…</button><input type="file" id="studio-import" accept=".json,application/json" hidden>
+          <button data-pact="file-dup">Duplicate this design</button></div></details>
+        <input class="pe-name" id="pe-name" value="${esc(plan.name)}" aria-label="Design name" maxlength="80">
         <select id="pe-kind" aria-label="Building type">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${plan.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select>
-        <div class="pe-seg pe-mode" id="pe-mode"><button data-pact="mode" data-mode="design" class="on">Design</button><button data-pact="mode" data-mode="simulate">▶ Simulate</button></div>
+        <div class="pe-seg pe-mode" id="pe-mode">${VIEWS.map(([k, label]) => `<button data-pact="mode" data-mode="${k}">${label}</button>`).join("")}</div>
         <span class="pe-status small muted" id="pe-status"></span>
         <span class="pe-spacer"></span>
-        <button class="btn small primary" data-pact="assist" title="Describe what you want; Muse Wonder lays it out">✨ Design with AI</button>
-        <details class="pe-menu" id="pe-export"><summary class="btn small">Export</summary><div class="pe-menu-list">
-          <button data-pact="export-png">Drawing sheet (PNG)</button><button data-pact="export-svg">Drawing sheet (SVG)</button>
-          <button data-pact="export-json">Plan file (JSON), to back up or move</button></div></details>
         <span class="pe-zoom"><button class="btn small" data-pact="zoom-out" title="Zoom out">−</button><span id="pe-scale" class="small mono"></span>
           <button class="btn small" data-pact="zoom-in" title="Zoom in">+</button><button class="btn small" data-pact="fit" title="Zoom to fit (0)">Fit</button></span>
+        <details class="pe-menu" id="pe-export"><summary class="btn small primary">Export ▾</summary><div class="pe-menu-list">
+          <button data-pact="export-png">Drawing sheet (PNG)</button><button data-pact="export-svg">Drawing sheet (SVG)</button>
+          <button data-pact="export-glb">3D model (.glb) for Blender, SketchUp, AR</button><button data-pact="export-shot">3D view as an image (PNG)</button>
+          <button data-pact="export-json">Design file (JSON), to back up or move</button></div></details>
       </div>
       <div class="pe-body">
-        <div class="pe-tools" id="pe-tools"></div>
-        <div class="pe-canvas" id="pe-canvas"><svg id="pc" xmlns="http://www.w3.org/2000/svg"></svg><div class="pe-hint" id="pe-hint"></div></div>
-        <aside class="pe-side" id="pe-side"></aside>
+        <div class="pe-left"><div class="pe-tools" id="pe-tools"></div><div class="pe-layers" id="pe-layers"></div></div>
+        <div class="pe-canvas" id="pe-canvas"><svg id="pc" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div class="view3d" id="view3d" hidden></div><div class="hud3d" id="hud3d" hidden></div><div class="pe-hint" id="pe-hint"></div></div>
+        <aside class="pe-right">
+          <div class="pe-tabs" id="pe-tabs"><button data-pact="stab" data-stab="ai">✨ AI designer</button><button data-pact="stab" data-stab="props">Properties</button></div>
+          <div class="pe-chat" id="pe-chat">
+            <div class="chat-log" id="chat-log" aria-live="polite"></div>
+            <form class="chat-in" id="chat-form">
+              <div class="chat-att" id="chat-att"></div>
+              <textarea id="chat-text" rows="3" maxlength="1500" placeholder="Describe a building, or ask for a change…"></textarea>
+              <div class="chat-bar"><label class="btn small" title="Attach a sketch, a photo of a drawing or an old plan (JPG, PNG, PDF)">📎 Draft
+                <input type="file" id="chat-file" accept="image/jpeg,image/png,image/webp,.pdf" hidden></label>
+                <span class="tiny muted">Enter to send · Shift+Enter new line</span><button class="btn primary small" type="submit" id="chat-send">Send ↑</button></div>
+            </form>
+          </div>
+          <div class="pe-side" id="pe-side"></div>
+        </aside>
       </div>
     </div>`;
-    $("#pe-name").oninput = (e) => { E.plan.name = e.target.value || "Untitled plan"; changed(false); };
+    $("#pe-name").oninput = (e) => { E.plan.name = e.target.value || "Untitled design"; changed(false); };
     $("#pe-kind").onchange = (e) => { E.plan.kind = e.target.value; changed(false); };
+    $("#studio-import").onchange = (e) => importFile(e.target.files[0]);
     const svg = $("#pc");
     svg.addEventListener("wheel", onWheel, { passive: false });
     svg.addEventListener("pointerdown", onPointerDown);
@@ -478,10 +515,17 @@ window.GTPlans = (() => {
     svg.addEventListener("pointerup", onPointerUp);
     svg.addEventListener("pointercancel", onPointerUp);
     svg.addEventListener("pointerleave", () => { if (E.hover) { E.hover = null; render(); } });
+    bindChat();
     requestAnimationFrame(() => {
       fitToScreen();
       render(true);
-      if (E.autorun) { E.autorun = false; if (AI.ready && E.assist.text) runAssist(); }
+      paintChat();
+      if (E.autorun) {
+        E.autorun = false;
+        const text = E.prefill;
+        E.prefill = "";
+        if (AI.ready && text) chatSend(text, null);
+      }
     });
   }
 
@@ -516,12 +560,25 @@ window.GTPlans = (() => {
   /* ---------------- editing: tools, selection, snapping, undo ---------------- */
   const icon = (d) => `<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">${d}</svg>`;
   const TOOLS = [
-    ["select", "Select and move", "V", icon(`<path d="M5 3l11 6.5-4.6 1.4L9 15.5z"/>`)],
-    ["room", "Draw a room", "R", icon(`<rect x="3" y="4.5" width="14" height="11"/><path d="M3 9.5h5v6"/>`)],
-    ["door", "Add a door", "D", icon(`<path d="M3 16h14"/><path d="M5 16V5"/><path d="M5 5a11 11 0 0111 11" stroke-dasharray="2 2"/>`)],
-    ["window", "Add a window", "W", icon(`<rect x="3" y="7.5" width="14" height="5"/><path d="M3 10h14"/>`)],
-    ["furniture", "Add furniture and fixtures", "F", icon(`<rect x="3" y="8" width="14" height="7" rx="1"/><path d="M5 8V5.5h10V8M3 15v1.5M17 15v1.5"/>`)],
+    ["select", "Select and move", "V", icon(`<path d="M5 3l11 6.5-4.6 1.4L9 15.5z"/>`), "Select"],
+    ["room", "Draw a room", "R", icon(`<rect x="3" y="4.5" width="14" height="11"/><path d="M3 9.5h5v6"/>`), "Room"],
+    ["door", "Add a door", "D", icon(`<path d="M3 16h14"/><path d="M5 16V5"/><path d="M5 5a11 11 0 0111 11" stroke-dasharray="2 2"/>`), "Door"],
+    ["window", "Add a window", "W", icon(`<rect x="3" y="7.5" width="14" height="5"/><path d="M3 10h14"/>`), "Window"],
+    ["furniture", "Add furniture and fixtures", "F", icon(`<rect x="3" y="8" width="14" height="7" rx="1"/><path d="M5 8V5.5h10V8M3 15v1.5M17 15v1.5"/>`), "Furniture"],
+    ["measure", "Measure a distance", "M", icon(`<path d="M2.5 13.5l11-11 4 4-11 11z"/><path d="M6 10l1.6 1.6M8.5 7.5l1.6 1.6M11 5l1.6 1.6"/>`), "Measure"],
+    ["note", "Pin a note", "T", icon(`<path d="M4 3.5h12v9l-4 4H4z"/><path d="M12 16.5v-4h4"/>`), "Note"],
   ];
+  const VIEWS = [["design", "Plan"], ["3d", "3D"], ["walk", "Walk"], ["simulate", "Simulate"]];
+  const UNDO_I = icon(`<path d="M7 5L3.5 8.5 7 12"/><path d="M4 8.5h8a4 4 0 010 8H9"/>`), REDO_I = icon(`<path d="M13 5l3.5 3.5L13 12"/><path d="M16 8.5H8a4 4 0 000 8h3"/>`);
+  const SNAP_I = icon(`<path d="M5 3v7a5 5 0 0010 0V3"/><path d="M5 6.5h3M12 6.5h3"/>`);
+  const EYE_I = icon(`<path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10z"/><circle cx="10" cy="10" r="2.3"/>`);
+  const EYE_OFF_I = icon(`<path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10z"/><path d="M3 3l14 14"/>`);
+  const LOCK_I = icon(`<rect x="4.5" y="9" width="11" height="8" rx="1.5"/><path d="M7 9V6.5a3 3 0 016 0V9"/>`);
+  const UNLOCK_I = icon(`<rect x="4.5" y="9" width="11" height="8" rx="1.5"/><path d="M7 9V6.5a3 3 0 015.6-1.5"/>`);
+  // layer, label, the plan list it holds (lockable and expandable)
+  const LAYERS = [["rooms", "Rooms", "rooms"], ["labels", "Room labels"], ["walls", "Walls"], ["openings", "Doors and windows", "openings"],
+    ["items", "Furniture", "items"], ["notes", "Notes", "notes"], ["dims", "Dimensions"], ["grid", "Grid"]];
+  const KIND_OF = { rooms: "room", openings: "opening", items: "item", notes: "note" };
   const ITEM_GROUPS = [["Living", ["sofa", "armchair", "dining_table", "plant"]], ["Bedroom", ["bed_double", "bed_single", "wardrobe", "desk"]],
     ["Kitchen", ["counter", "stove", "kitchen_sink", "fridge"]], ["Bathroom", ["toilet", "basin", "shower", "bathtub"]],
     ["Other", ["meeting_table", "stairs", "car"]]];
@@ -531,13 +588,15 @@ window.GTPlans = (() => {
     door: "Click on a wall to put a door there · drag a door to slide it along its wall · Esc when done",
     window: "Click on a wall to put a window there · drag a window to slide it · Esc when done",
     furniture: "Pick a piece in the panel on the right, then click on the plan to place it",
+    measure: "Drag to measure a distance · it snaps to room corners · Esc to clear",
+    note: "Click anywhere to pin a note for yourself or your architect",
   };
   const GRID = 0.1, MIN = 0.5;
   const g = (v, step = GRID) => r2(Math.round(v / step) * step);
-  const LIST = { room: "rooms", opening: "openings", item: "items" };
+  const LIST = { room: "rooms", opening: "openings", item: "items", note: "notes" };
   const find = (kind, id) => E.plan[LIST[kind]]?.find((x) => x.id === id);
   const selected = () => (E.sel ? find(E.sel.kind, E.sel.id) : null);
-  const snapshot = () => JSON.stringify({ rooms: E.plan.rooms, openings: E.plan.openings, items: E.plan.items });
+  const snapshot = () => JSON.stringify({ rooms: E.plan.rooms, openings: E.plan.openings, items: E.plan.items, notes: E.plan.notes || [] });
   function commit(before) {
     if (before !== snapshot()) { E.undo.push(before); if (E.undo.length > 200) E.undo.shift(); E.redo = []; }
     changed(true, true);
@@ -558,7 +617,16 @@ window.GTPlans = (() => {
     E.placing = null;
     render(true);
   }
-  function select(kind, id) { E.sel = kind ? { kind, id } : null; render(true); }
+  function select(kind, id) { E.sel = kind ? { kind, id } : null; if (kind) E.tab = "props"; render(true); }
+  // A point snapped to the nearest room corner within 10 px, else to a 5 cm grid (or free with Alt / snapping off).
+  function snapPoint(p, free) {
+    if (free) return { x: r2(p.x), y: r2(p.y) };
+    const tol = 10 / E.view.s;
+    for (const r of E.plan.rooms) for (const [x, y] of [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]]) {
+      if (Math.hypot(x - p.x, y - p.y) <= tol) return { x, y };
+    }
+    return { x: g(p.x, 0.05), y: g(p.y, 0.05) };
+  }
 
   function roomTargets(axis, exceptId) {
     const out = [];
@@ -626,12 +694,27 @@ window.GTPlans = (() => {
 
   function onPointerDown(ev) {
     if (ev.button !== 0 && ev.button !== 1) return;
-    if (E.assist.running || E.mode === "simulate") { E.drag = { mode: "pan", start: toWorld(ev), view: { ...E.view } }; return; }
+    if (E.assist.running || E.mode !== "design") { E.drag = { mode: "pan", start: toWorld(ev), view: { ...E.view } }; return; }
     try { $("#pc").setPointerCapture(ev.pointerId); } catch { /* synthetic events have no capturable pointer */ }
     const p = toWorld(ev);
     if (ev.button === 1 || E.space) { E.drag = { mode: "pan", start: p, view: { ...E.view } }; return; }
+    const free = ev.altKey || !E.snap;
+    if (E.tool === "measure") {
+      const a = snapPoint(p, free);
+      E.measure = { a, b: a };
+      E.drag = { mode: "measure" };
+      return;
+    }
+    if (E.tool === "note" && !ev.target.closest("[data-kind=note]")) {
+      const before = snapshot(), n = { id: uid("n"), x: g(p.x, 0.05), y: g(p.y, 0.05), text: "Note" };
+      E.plan.notes.push(n);
+      Object.assign(E, { sel: { kind: "note", id: n.id }, tab: "props", tool: "select" });
+      commit(before);
+      setTimeout(() => { const t = $("#pe-side [data-prop=text]"); t?.focus(); t?.select(); }, 0);
+      return;
+    }
     if (E.tool === "room") {
-      const x = snapEdge(p.x, roomTargets("x"), ev.altKey), y = snapEdge(p.y, roomTargets("y"), ev.altKey);
+      const x = snapEdge(p.x, roomTargets("x"), free), y = snapEdge(p.y, roomTargets("y"), free);
       E.drag = { mode: "draw", x0: x.v, y0: y.v, before: snapshot() };
       return;
     }
@@ -657,7 +740,8 @@ window.GTPlans = (() => {
       } else E.drag = { mode: "pan", start: p, view: { ...E.view } };
       return;
     }
-    const target = ev.target.closest("[data-handle],[data-kind]");
+    let target = ev.target.closest("[data-handle],[data-kind]");
+    if (target?.dataset.kind && E.layers.lock.has(LIST[target.dataset.kind])) target = null; // a locked layer can't be picked
     if (target?.dataset.handle) {
       const r = find("room", target.dataset.id);
       const ops = Object.fromEntries(E.plan.openings.filter((o) => o.room === r.id).map((o) => [o.id, o.at]));
@@ -667,6 +751,7 @@ window.GTPlans = (() => {
     if (target?.dataset.kind) {
       const { kind, id } = target.dataset;
       E.sel = { kind, id };
+      E.tab = "props";
       E.drag = { mode: "move", kind, id, start: p, orig: { ...find(kind, id) }, before: snapshot() };
       render(true);
       return;
@@ -682,8 +767,9 @@ window.GTPlans = (() => {
       if (E.tool === "furniture" && E.placing) { const q = toWorld(ev); E.hover = { item: E.placing, cx: g(q.x, 0.05), cy: g(q.y, 0.05) }; render(); }
       return;
     }
-    const p = toWorld(ev), free = ev.altKey;
+    const p = toWorld(ev), free = ev.altKey || !E.snap;
     E.guides = [];
+    if (d.mode === "measure") { E.measure.b = snapPoint(p, free); render(); return; }
     if (d.mode === "pan") { E.view = { ...d.view, tx: d.view.tx + p.px - d.start.px, ty: d.view.ty + p.py - d.start.py }; render(); return; }
     if (d.mode === "draw") {
       const x = snapEdge(p.x, roomTargets("x"), free), y = snapEdge(p.y, roomTargets("y"), free);
@@ -703,6 +789,10 @@ window.GTPlans = (() => {
     } else if (d.mode === "move" && d.kind === "opening") {
       const op = find("opening", d.id), r = roomOf(E.plan, op.room), horiz = op.side === "n" || op.side === "s", delta = horiz ? dx : dy;
       op.at = r2(clamp(d.orig.at + (free ? delta : g(delta, 0.05)), op.width / 2, sideLength(r, op.side) - op.width / 2));
+    } else if (d.mode === "move" && d.kind === "note") {
+      const n = find("note", d.id);
+      n.x = r2(d.orig.x + (free ? dx : g(dx, 0.05)));
+      n.y = r2(d.orig.y + (free ? dy : g(dy, 0.05)));
     } else if (d.mode === "move" && d.kind === "item") {
       const it = find("item", d.id);
       it.cx = r2(d.orig.cx + (free ? dx : g(dx, 0.05)));
@@ -729,7 +819,7 @@ window.GTPlans = (() => {
     const d = E.drag;
     E.drag = null;
     E.guides = [];
-    if (!d || d.mode === "pan") return;
+    if (!d || d.mode === "pan" || d.mode === "measure") { if (d?.mode === "measure") render(); return; }
     if (d.mode === "draw") {
       const gh = E.ghost;
       E.ghost = null;
@@ -759,6 +849,7 @@ window.GTPlans = (() => {
   function duplicateSel() {
     const s = E.sel, src = selected();
     if (!s || s.kind === "opening" || !src) return;
+    if (s.kind === "note") { E.clip = { kind: "note", data: { ...src } }; pasteClip(); return; }
     const before = snapshot();
     if (s.kind === "room") {
       // place the copy against the right-hand wall if that space is free, else offset it
@@ -776,11 +867,30 @@ window.GTPlans = (() => {
     commit(before);
   }
 
+  function copySel() {
+    const s = selected();
+    if (!s) return;
+    E.clip = { kind: E.sel.kind, data: JSON.parse(JSON.stringify(s)), ops: E.sel.kind === "room" ? E.plan.openings.filter((o) => o.room === s.id).map((o) => ({ ...o })) : [] };
+  }
+  function pasteClip() {
+    const c = E.clip, before = snapshot(), d = JSON.parse(JSON.stringify(c.data));
+    d.id = uid(c.kind[0]);
+    if (c.kind === "room") {
+      Object.assign(d, { name: uniqueName(d.name.replace(/ \d+$/, "")), x: r2(d.x + 0.5), y: r2(d.y + 0.5) });
+      for (const op of c.ops) E.plan.openings.push({ ...op, id: uid("o"), room: d.id });
+    } else if (c.kind === "note") Object.assign(d, { x: r2(d.x + 0.4), y: r2(d.y + 0.4) });
+    else if (c.kind === "item") Object.assign(d, { cx: r2(d.cx + 0.3), cy: r2(d.cy + 0.3) });
+    else return;
+    E.plan[LIST[c.kind]].push(d);
+    E.sel = { kind: c.kind, id: d.id };
+    commit(before);
+  }
+
   function nudge(dx, dy) {
     const s = selected();
     if (!s || E.sel.kind === "opening") return;
     const before = snapshot();
-    if (E.sel.kind === "room") { s.x = r2(s.x + dx); s.y = r2(s.y + dy); } else { s.cx = r2(s.cx + dx); s.cy = r2(s.cy + dy); }
+    if (E.sel.kind === "room" || E.sel.kind === "note") { s.x = r2(s.x + dx); s.y = r2(s.y + dy); } else { s.cx = r2(s.cx + dx); s.cy = r2(s.cy + dy); }
     commit(before);
   }
 
@@ -804,7 +914,7 @@ window.GTPlans = (() => {
   document.addEventListener("keydown", (e) => {
     if (!$("#plan-editor")) return;
     const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || "");
-    if ((E.assist.running || E.mode === "simulate") && !typing) return;
+    if ((E.assist.running || E.mode !== "design") && !typing) return;
     const mod = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
     if (mod && (key === "z" || key === "y")) {
       if (typing) return;
@@ -814,6 +924,8 @@ window.GTPlans = (() => {
     }
     if (typing) { if (e.key === "Escape" || e.key === "Enter") document.activeElement.blur(); return; }
     if (mod && key === "d") { e.preventDefault(); duplicateSel(); return; }
+    if (mod && key === "c" && E.sel) { e.preventDefault(); copySel(); return; }
+    if (mod && key === "v" && E.clip) { e.preventDefault(); pasteClip(); return; }
     if (mod || e.altKey) return;
     const step = e.shiftKey ? 0.5 : GRID;
     const arrows = { arrowleft: [-step, 0], arrowright: [step, 0], arrowup: [0, -step], arrowdown: [0, step] };
@@ -821,6 +933,7 @@ window.GTPlans = (() => {
     if (key === " ") { E.space = true; e.preventDefault(); return; }
     if (key === "r" && e.shiftKey) { EDIT_ACTIONS.rotate(); return; }
     if (key === "escape") {
+      if (E.measure) { E.measure = null; render(); }
       if (E.drag?.mode === "draw") { E.drag = null; E.ghost = null; render(); }
       else if (E.tool !== "select") setTool("select");
       else select(null);
@@ -865,13 +978,22 @@ window.GTPlans = (() => {
         out.push(tag(tx, ty, h.ok ? `${OPENING_TYPES[E.tool][0]} ${fmtM(h.width)}` : h.why));
       }
     }
+    if (E.measure && (E.measure.a.x !== E.measure.b.x || E.measure.a.y !== E.measure.b.y)) {
+      const { a, b } = E.measure, len = Math.hypot(b.x - a.x, b.y - a.y);
+      out.push(`<g pointer-events="none" stroke="${ACCENT}" stroke-width="2"><line x1="${X(a.x)}" y1="${Y(a.y)}" x2="${X(b.x)}" y2="${Y(b.y)}" stroke-dasharray="6 4"/>
+        <circle cx="${X(a.x)}" cy="${Y(a.y)}" r="4" fill="#fff"/><circle cx="${X(b.x)}" cy="${Y(b.y)}" r="4" fill="#fff"/></g>`);
+      out.push(tag((X(a.x) + X(b.x)) / 2, (Y(a.y) + Y(b.y)) / 2 - 12, `${len.toFixed(2)} m`));
+    }
     const s = selected();
+    if (s && E.sel.kind === "note") {
+      out.push(`<circle cx="${X(s.x)}" cy="${Y(s.y)}" r="10" fill="none" stroke="${ACCENT}" stroke-width="2" pointer-events="none"/>`);
+    }
     if (s && E.sel.kind === "room") {
       const x = X(s.x), y = Y(s.y), w = L(s.w), h = L(s.h);
       out.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="${ACCENT}" stroke-width="2" pointer-events="none"/>`);
       out.push(dimH(x, x + w, y - 22, fmtM(s.w)), dimV(y, y + h, x - 22, fmtM(s.h)));
       const hs = 9, pts = { nw: [x, y], n: [x + w / 2, y], ne: [x + w, y], e: [x + w, y + h / 2], se: [x + w, y + h], s: [x + w / 2, y + h], sw: [x, y + h], w: [x, y + h / 2] };
-      for (const [k, [hx, hy]] of Object.entries(pts)) {
+      for (const [k, [hx, hy]] of Object.entries(E.layers.lock.has("rooms") ? {} : pts)) {
         out.push(`<rect class="handle h-${k}" data-handle="${k}" data-id="${s.id}" x="${r2(hx - hs / 2)}" y="${r2(hy - hs / 2)}" width="${hs}" height="${hs}" fill="#fff" stroke="${ACCENT}" stroke-width="1.6"/>`);
       }
     } else if (s && E.sel.kind === "item") {
@@ -911,17 +1033,36 @@ window.GTPlans = (() => {
   function render(sideToo = false) {
     const svg = $("#pc");
     if (!svg || !E.plan) return;
+    const in3d = E.mode === "3d" || E.mode === "walk";
+    svg.style.display = in3d ? "none" : "";
+    $("#view3d").hidden = !in3d;
+    $("#hud3d").hidden = !in3d;
+    $(".pe-zoom").style.visibility = in3d ? "hidden" : "";
+    if (in3d) {
+      if (E.three) { // rebuild the 3D model whenever the plan changed (including while the AI is working)
+        const sig = snapshot() + (E.plan.wallHeight || "");
+        if (sig !== E.threeSig) { E.threeSig = sig; E.three.build(E.plan); applySun3d(); }
+      }
+      $("#pe-hint").textContent = "";
+      $$("#pe-mode button").forEach((b) => b.classList.toggle("on", b.dataset.mode === E.mode));
+      paintTools(); paintLayers(); paintTabs(); paintSide(sideToo); paintStatus();
+      return;
+    }
     const { W, H } = canvasSize();
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     svg.setAttribute("class", `tool-${E.tool}${E.drag?.mode === "pan" ? " panning" : ""}`);
     const sim = E.mode === "simulate" && !E.assist.running;
-    svg.innerHTML = `<rect width="${W}" height="${H}" fill="${PAPER}"/>` + drawPlan(E.plan, E.view, { width: W, height: H, grid: true, overlay: sim ? simOverlay : overlay })
+    svg.innerHTML = `<rect width="${W}" height="${H}" fill="${PAPER}"/>` + drawPlan(E.plan, E.view, { width: W, height: H, grid: true, hide: E.layers.hide, dims: true,
+      overlay: sim ? simOverlay : overlay })
       + scaleBar(W, H) + (sim ? simHud(W) : "");
     if (sim) placeWalkers();
     $("#pe-scale").textContent = `${Math.round(E.view.s)} px/m`;
-    $("#pe-hint").textContent = E.drag ? "" : E.mode === "simulate" ? "Simulation: drag to pan, scroll to zoom. Switch back to Design to edit." : HINTS[E.tool] || "";
+    $("#pe-hint").textContent = E.drag ? "" : E.assist.running ? "The AI designer is working… you can pan and zoom"
+      : E.mode === "simulate" ? "Simulation: drag to pan, scroll to zoom. Switch back to Plan to edit." : HINTS[E.tool] || "";
     $$("#pe-mode button").forEach((b) => b.classList.toggle("on", b.dataset.mode === E.mode));
     paintTools();
+    paintLayers();
+    paintTabs();
     paintSide(sideToo);
     paintStatus();
   }
@@ -935,12 +1076,41 @@ window.GTPlans = (() => {
 
   function paintTools() {
     const box = $("#pe-tools");
-    const off = E.mode === "simulate" ? "disabled" : "";
-    const html = TOOLS.map(([id, label, key, ic]) => `<button class="pe-tool ${E.tool === id && !off ? "on" : ""}" ${off} data-pact="tool" data-tool="${id}" title="${label} (${key})"
-      aria-label="${label}" aria-pressed="${E.tool === id}">${ic}<span>${key}</span></button>`).join("") +
-      `<span class="pe-sep"></span><button class="pe-tool" data-pact="undo" title="Undo (⌘Z)" aria-label="Undo" ${E.undo.length ? "" : "disabled"}>${icon(`<path d="M7 5L3.5 8.5 7 12"/><path d="M4 8.5h8a4 4 0 010 8H9"/>`)}</button>
-      <button class="pe-tool" data-pact="redo" title="Redo (⇧⌘Z)" aria-label="Redo" ${E.redo.length ? "" : "disabled"}>${icon(`<path d="M13 5l3.5 3.5L13 12"/><path d="M16 8.5H8a4 4 0 000 8h3"/>`)}</button>`;
+    const off = E.mode !== "design" || E.assist.running ? "disabled" : "";
+    const html = `<div class="pane-head">Tools</div><div class="tl-grid">${TOOLS.map(([id, label, key, ic, short]) => `<button class="pe-tool ${E.tool === id && !off ? "on" : ""}" ${off}
+      data-pact="tool" data-tool="${id}" title="${label} (${key})" aria-pressed="${E.tool === id}">${ic}<span>${short}</span><kbd>${key}</kbd></button>`).join("")}</div>
+      <div class="tl-row"><button class="pe-tool sm" data-pact="undo" title="Undo (⌘Z)" ${E.undo.length && !off ? "" : "disabled"}>${UNDO_I}<span>Undo</span></button>
+      <button class="pe-tool sm" data-pact="redo" title="Redo (⇧⌘Z)" ${E.redo.length && !off ? "" : "disabled"}>${REDO_I}<span>Redo</span></button>
+      <button class="pe-tool sm ${E.snap ? "on" : ""}" data-pact="snap" title="Snap to the grid and to walls (hold Alt to bypass)" ${off}>${SNAP_I}<span>Snap</span></button></div>`;
     if (box && box._html !== html) { box.innerHTML = html; box._html = html; }
+  }
+
+  function paintLayers() {
+    const box = $("#pe-layers");
+    if (!box) return;
+    const L = E.layers, p = E.plan, mk = marks(p);
+    const label = (list, x) => (list === "rooms" ? x.name : list === "items" ? ITEM_TYPES[x.type]?.[0] || x.type
+      : list === "openings" ? `${mk[x.id]} · ${OPENING_TYPES[x.type][0]}` : x.text);
+    const rows = LAYERS.map(([k, name, list]) => {
+      const items = list ? p[list] || [] : null, open = list && E.layerOpen.has(k) && items.length;
+      return `<div class="ly ${L.hide.has(k) ? "off" : ""}">
+        <button class="ly-i" data-pact="ly-eye" data-l="${k}" title="${L.hide.has(k) ? "Show" : "Hide"} ${name}">${L.hide.has(k) ? EYE_OFF_I : EYE_I}</button>
+        ${list ? `<button class="ly-i ${L.lock.has(k) ? "on" : ""}" data-pact="ly-lock" data-l="${k}" title="${L.lock.has(k) ? "Unlock" : "Lock"} ${name}">${L.lock.has(k) ? LOCK_I : UNLOCK_I}</button>` : `<span class="ly-i"></span>`}
+        <button class="ly-name" data-pact="ly-open" data-l="${k}" ${list && items.length ? "" : "disabled"}>${list && items.length ? (open ? "▾" : "▸") : "·"} ${name}${items ? ` <span>${items.length}</span>` : ""}</button></div>
+        ${open ? `<div class="ly-items">${items.map((x) => `<button class="${E.sel?.id === x.id ? "on" : ""}" data-pact="ly-sel" data-k="${KIND_OF[list]}" data-id="${x.id}">${esc(label(list, x))}</button>`).join("")}</div>` : ""}`;
+    }).join("");
+    const html = `<div class="pane-head">Layers</div>${rows}`;
+    if (box._html !== html) { box.innerHTML = html; box._html = html; }
+  }
+
+  function paintTabs() {
+    $$("#pe-tabs button").forEach((b) => {
+      b.classList.toggle("on", b.dataset.stab === E.tab);
+      if (b.dataset.stab === "props") b.textContent = E.mode === "simulate" ? "Simulation" : "Properties";
+    });
+    const chat = $("#pe-chat"), side = $("#pe-side");
+    if (chat) chat.hidden = E.tab !== "ai";
+    if (side) side.hidden = E.tab !== "props";
   }
 
   // The side panel shows the selection's properties, or the plan summary. While a field in it has focus
@@ -948,12 +1118,12 @@ window.GTPlans = (() => {
   function paintSide(force) {
     const side = $("#pe-side");
     if (!side) return;
-    const key = E.mode === "simulate" ? `sim:${E.sim.loading}:${!!E.sim.result}` : E.assist.open ? "assist" : E.sel ? `${E.sel.kind}:${E.sel.id}` : "plan";
+    const key = E.mode === "simulate" ? `sim:${E.sim.loading}:${!!E.sim.result}` : E.sel ? `${E.sel.kind}:${E.sel.id}` : `plan:${E.tool === "furniture"}`;
     if (!force && key === side._key && side.contains(document.activeElement)) { paintLive(); return; }
     side._key = key;
     const s = selected();
-    side.innerHTML = E.mode === "simulate" ? simPanel() : E.assist.open ? assistPanel() : !s ? (E.tool === "furniture" ? palettePanel() : summaryPanel())
-      : E.sel.kind === "room" ? roomPanel(s) : E.sel.kind === "opening" ? openingPanel(s) : itemPanel(s);
+    side.innerHTML = E.mode === "simulate" ? simPanel() : !s ? (E.tool === "furniture" ? palettePanel() : summaryPanel())
+      : E.sel.kind === "room" ? roomPanel(s) : E.sel.kind === "opening" ? openingPanel(s) : E.sel.kind === "note" ? notePanel(s) : itemPanel(s);
     bindFields(side);
     paintLive();
   }
@@ -975,6 +1145,7 @@ window.GTPlans = (() => {
     return `<div class="pe-head"><h3>Room</h3><button class="link small" data-pact="deselect">Plan summary</button></div>
       <label class="pe-field wide"><span>Name</span><input data-prop="name" value="${esc(r.name)}" maxlength="60"></label>
       <label class="pe-field wide"><span>Type</span><select data-prop="type">${Object.entries(ROOM_TYPES).map(([k, [label]]) => `<option value="${k}" ${r.type === k ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+      <label class="pe-field wide"><span>Floor finish</span><select data-prop="floor">${Object.entries(FLOORS).map(([k, [l]]) => `<option value="${k}" ${(r.floor || defaultFloor(r.type)) === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       <div class="pe-row">${num("w", "Width (m)", r.w, `min="${MIN}"`)}${num("h", "Depth (m)", r.h, `min="${MIN}"`)}</div>
       <div class="pe-row">${num("x", "From left (m)", r.x)}${num("y", "From top (m)", r.y)}</div>
       <p class="pe-area">Area <b data-live="area"></b></p>
@@ -1003,6 +1174,13 @@ window.GTPlans = (() => {
       <p class="small muted" style="margin:0 0 6px">Pick one, then click on the plan to place it.</p>
       ${ITEM_GROUPS.map(([group, types]) => `<h4>${group}</h4><div class="pe-palette">${types.map((t) => `<button class="${E.placing === t ? "on" : ""}" data-pact="pick-item" data-type="${t}"
         title="${ITEM_TYPES[t][0]}">${preview(t)}<span>${ITEM_TYPES[t][0]}</span></button>`).join("")}</div>`).join("")}`;
+  }
+
+  function notePanel(n) {
+    return `<div class="pe-head"><h3>Note</h3><button class="link small" data-pact="deselect">Plan summary</button></div>
+      <label class="pe-field wide"><span>Text</span><textarea data-prop="text" rows="3" maxlength="200">${esc(n.text)}</textarea></label>
+      <div class="pe-actions"><button class="btn small" data-pact="dup-sel">Duplicate</button><button class="btn small danger" data-pact="del-sel">Delete note</button></div>
+      <p class="tiny muted">Notes print on the exported sheet. Drag the pin to move it; hide or lock all notes in Layers.</p>`;
   }
 
   const roomAt = (x, y) => E.plan.rooms.find((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
@@ -1038,6 +1216,9 @@ window.GTPlans = (() => {
         <td class="num">${fmtA(area(r))}</td></tr>`).join("")}</table>` : `<p class="small muted">No rooms yet. Pick <b>Draw a room</b> (R) and drag on the grid.</p>`}
       ${p.openings.length ? `<h4>Doors and windows</h4><table class="pe-table">${p.openings.map((op) => `<tr data-pact="select-opening" data-id="${op.id}" data-select>
         <td><b>${marks(p)[op.id]}</b></td><td>${OPENING_TYPES[op.type][0]}</td><td>${esc(roomOf(p, op.room)?.name || "")}</td><td class="num">${fmtM(op.width)}</td></tr>`).join("")}</table>` : ""}
+      <h4>Building</h4>
+      <div class="pe-row"><label class="pe-field"><span>Wall height (m)</span><input type="number" step="0.1" min="2.2" max="6" data-meta="wallHeight" value="${p.wallHeight || 2.7}"></label>
+        <label class="pe-field"><span>Notes</span><input disabled value="${(p.notes || []).length} pinned"></label></div>
       <h4>Drawing sheet</h4>
       <div class="pe-row"><label class="pe-field"><span>Sheet number</span><input data-meta="sheet" value="${esc(p.sheet || "A-101")}" maxlength="12"></label>
         <label class="pe-field"><span>Revision</span><input data-meta="revision" value="${esc(p.revision || "A")}" maxlength="4"></label></div>
@@ -1051,7 +1232,12 @@ window.GTPlans = (() => {
     if (text) text.oninput = () => { E.assist.text = text.value; };
     const feed = $("#assist-feed", side);
     if (feed && E.assist.running) side.scrollTop = side.scrollHeight;
-    for (const el of $$("[data-meta]", side)) el.oninput = () => { E.plan[el.dataset.meta] = el.value.trim(); changed(false); };
+    for (const el of $$("[data-meta]", side)) {
+      el.oninput = () => {
+        E.plan[el.dataset.meta] = el.type === "number" ? Math.min(6, Math.max(2.2, parseFloat(el.value) || 2.7)) : el.value.trim();
+        changed(false);
+      };
+    }
     for (const el of $$("[data-prop]", side)) {
       el.onfocus = () => { E.fieldBefore = snapshot(); };
       el.oninput = () => applyField(el, false);
@@ -1134,12 +1320,96 @@ window.GTPlans = (() => {
 
   function setMode(mode) {
     if (mode === E.mode) return;
+    const was = E.mode;
     E.mode = mode;
     E.sel = null;
-    E.assist.open = false;
     E.tool = "select";
-    if (mode === "simulate") { if (E.sim.stale || !E.sim.result) runSim(); else render(true); }
-    else { stopSim(); render(true); }
+    E.measure = null;
+    if (was === "simulate") stopSim();
+    if (mode === "3d" || mode === "walk") { paintHud(); render(true); open3d(mode); return; }
+    E.three?.pause();
+    if (mode === "simulate") { E.tab = "props"; if (E.sim.stale || !E.sim.result) runSim(); else render(true); return; }
+    render(true);
+    requestAnimationFrame(() => { fitToScreen(); render(); });
+  }
+
+  /* ---------------- 3D and walk ---------------- */
+  const DAYS = { winter: 355, equinox: 80, summer: 172 };
+  const GEOM = { walls, openingGeom, shared, footprint, bounds, FLOORS, defaultFloor };
+  async function open3d(mode) {
+    const box = $("#view3d");
+    try {
+      if (!E.three) {
+        box.innerHTML = `<p class="v3-msg"><span class="spin"></span> Loading the 3D view…</p>`;
+        const mod = await import("/studio3d.js");
+        if (!$("#plan-editor") || box !== $("#view3d")) return;
+        box.innerHTML = "";
+        E.sunPosition = mod.sunPosition;
+        E.three = mod.create(box, GEOM);
+        E.three.onMove((x, z, yaw) => paintMinimap(x, z, yaw));
+        E.threeSig = "";
+      }
+      E.three.resume();
+      E.threeSig = snapshot() + (E.plan.wallHeight || "");
+      E.three.build(E.plan);
+      applySun3d();
+      E.three.setMode(mode === "walk" ? "walk" : "orbit", E.plan);
+      paintHud();
+    } catch (err) {
+      box.innerHTML = `<p class="v3-msg">The 3D view couldn't start: ${esc(err.message || err)}. It needs WebGL and loads three.js from a CDN.</p>`;
+    }
+  }
+  function applySun3d() {
+    if (!E.three || !E.sunPosition) return;
+    const site = E.plan.site, pos = E.sunPosition(site.latitude, DAYS[E.sim.season] || 355, E.sim.hour ?? 10);
+    E.three.setSun(pos.azimuth, pos.elevation, site.north);
+  }
+  function paintHud() {
+    const hud = $("#hud3d");
+    if (!hud) return;
+    const site = E.plan.site, hour = E.sim.hour ?? 10;
+    const sunRow = `<div class="hud-row"><span>☀</span><input type="range" min="5" max="20" step="0.25" value="${hour}" data-h3="hour" aria-label="Time of day">
+      <b class="mono" id="hud-hour">${hhmm(hour)}</b><select data-h3="season">${Object.entries(SEASONS).map(([k, v]) => `<option value="${k}" ${E.sim.season === k ? "selected" : ""}>${v}</option>`).join("")}</select>
+      <span class="tiny muted">${esc(site.city)}</span></div>`;
+    hud.innerHTML = E.mode === "walk" ? `
+      <div class="hud-card">${sunRow}<p class="tiny">Click <b>Look around</b>, then move the mouse to look. <b>W A S D</b> or arrows to walk, <b>Shift</b> to hurry, <b>Esc</b> to free the mouse. On a touch screen, drag to look and hold the arrows.</p>
+        <div class="hud-row"><button class="btn small primary" data-pact="walk-lock">Look around</button><button class="btn small" data-pact="mode" data-mode="3d">Back to 3D</button></div></div>
+      <div class="hud-pad">${[["fwd", "▲"], ["left", "◀"], ["back", "▼"], ["right", "▶"]].map(([k, t]) => `<button data-hold="${k}" aria-label="${k}">${t}</button>`).join("")}</div>
+      <div class="hud-map" id="hud-map"></div>`
+      : `<div class="hud-card">${sunRow}<p class="tiny">Drag to orbit · scroll to zoom · right-drag to pan. Shadows follow the sun at ${esc(site.city)}.</p>
+        <div class="hud-row"><button class="btn small primary" data-pact="mode" data-mode="walk">🚶 Walk inside</button></div></div>`;
+    for (const el of $$("[data-h3]", hud)) {
+      el.oninput = () => {
+        if (el.dataset.h3 === "hour") { E.sim.hour = Number(el.value); $("#hud-hour").textContent = hhmm(E.sim.hour); }
+        else E.sim.season = el.value;
+        applySun3d();
+      };
+    }
+    for (const el of $$("[data-hold]", hud)) {
+      const on = (v) => (e) => { e.preventDefault(); E.three?.hold(el.dataset.hold, v); };
+      el.onpointerdown = on(true);
+      el.onpointerup = el.onpointerleave = el.onpointercancel = on(false);
+    }
+    if (E.mode === "walk") paintMinimap();
+  }
+  // A small plan in the corner of Walk, with where you are and which way you face.
+  function paintMinimap(x, z, yaw) {
+    const box = $("#hud-map");
+    if (!box) return;
+    const W = 180, H = 140, view = fitView(E.plan, W, H, 8);
+    if (box._planSig !== snapshot()) {
+      box._planSig = snapshot();
+      box.innerHTML = `<svg viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="${PAPER}"/>${drawPlan(E.plan, view, { labels: false, hide: new Set(["items", "notes"]) })}<g id="hud-me"></g></svg>`;
+    }
+    if (x === undefined) return;
+    const px = r2(view.tx + x * view.s), py = r2(view.ty + z * view.s), dx = -Math.sin(yaw) * 12, dy = -Math.cos(yaw) * 12;
+    $("#hud-me", box).innerHTML = `<line x1="${px}" y1="${py}" x2="${r2(px + dx)}" y2="${r2(py + dy)}" stroke="${ACCENT}" stroke-width="2.5"/><circle cx="${px}" cy="${py}" r="4.5" fill="${ACCENT}" stroke="#fff" stroke-width="1.5"/>`;
+  }
+  async function ensure3d() {
+    if (!E.three) await open3d(E.mode === "walk" ? "walk" : "3d");
+    if (!E.three) throw new Error("the 3D view isn't available");
+    if (E.mode !== "3d" && E.mode !== "walk") { E.threeSig = snapshot() + (E.plan.wallHeight || ""); E.three.build(E.plan); applySun3d(); }
+    return E.three;
   }
 
   function stopSim() {
@@ -1316,41 +1586,17 @@ window.GTPlans = (() => {
     },
   });
 
-  /* ---------------- design assistant ---------------- */
+  /* ---------------- AI designer chat ---------------- */
   const EX_NEW = ["A three-bedroom family house of about 110 m² with an open kitchen and living area, two bathrooms and a hallway",
-    "A one-bedroom apartment of about 50 m² with a balcony", "A small dental clinic with a reception, a waiting room, two treatment rooms, a staff room, a WC and a store",
-    "A café of about 80 m² with seating, a counter, a kitchen, a store and two WCs"];
-  const EX_EDIT = ["Add a home office of about 9 m² next to the living room", "Give the main bedroom its own bathroom", "Add a single garage on the west side"];
+    "A one-bedroom apartment of about 50 m² with a balcony", "A café of about 80 m² with seating, a counter, a kitchen, a store and two WCs",
+    "A small dental clinic with a reception, a waiting room, two treatment rooms, a staff room, a WC and a store"];
+  const EX_EDIT = ["Add a home office of about 9 m² next to the living room", "Make the kitchen bigger and open it to the living room",
+    "Give the main bedroom its own bathroom", "Add a window to every bedroom", "How big is the living room?"];
   const short = (t) => t.split(" ").slice(0, 5).join(" ") + "…";
 
   const feedHtml = (A) => A.feed.map((f) => f.kind === "note" ? `<div class="msg">${esc(f.text)}</div>`
     : f.kind === "turn" ? `<div class="turn">${esc(f.text)}</div>`
     : `<div class="ev ${f.kind}"><span>${f.kind === "ok" ? "✓" : "✗"}</span><span>${esc(f.text)}</span></div>`).join("");
-
-  function assistPanel() {
-    const A = E.assist, hasRooms = E.plan.rooms.length > 0, mode = hasRooms ? A.mode : "new", examples = mode === "edit" ? EX_EDIT : EX_NEW;
-    const feed = feedHtml(A);
-    const r = A.result;
-    const resultBox = r ? `<div class="assist-done ${r.finished ? "" : "warn"}"><b>${r.finished ? "✓ Done" : "Stopped before the plan passed its checks"}</b>
-        <span class="small">${r.check.rooms} rooms · ${fmtA(r.check.total_area_m2)} · ${r.turns} turns · ${r.seconds} s · $${(r.cost_usd || 0).toFixed(2)}</span>
-        ${r.summary ? `<p>${esc(r.summary)}</p>` : ""}
-        ${r.check.errors.length ? `<ul class="bad">${r.check.errors.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : ""}
-        ${r.check.warnings.length ? `<p class="tiny muted" style="margin:6px 0 2px">Worth a look:</p><ul>${r.check.warnings.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : ""}
-        <div class="pe-actions" style="margin-top:8px"><button class="btn small" data-pact="undo">Undo the assistant's changes</button></div>
-        <p class="tiny muted">Furniture isn't placed by the assistant yet: add it with the Furniture tool (F).</p></div>` : "";
-    return `<div class="pe-head"><h3>✨ Design assistant</h3><button class="link small" data-pact="assist-close">Close</button></div>
-      <p class="small muted" style="margin:0 0 10px">Describe what you want. Muse Wonder lays out rooms, doors and windows with the editor's own tools;
-        the code measures every step and refuses anything that overlaps or doesn't fit.</p>
-      ${hasRooms ? `<div class="pe-seg"><button data-pact="assist-mode" data-mode="edit" class="${mode === "edit" ? "on" : ""}" ${A.running ? "disabled" : ""}>Change this plan</button>
-        <button data-pact="assist-mode" data-mode="new" class="${mode === "new" ? "on" : ""}" ${A.running ? "disabled" : ""}>Start a new layout</button></div>` : ""}
-      <textarea id="assist-text" maxlength="800" rows="4" placeholder="${esc(mode === "edit" ? "e.g. " + EX_EDIT[0] : "e.g. " + EX_NEW[0])}" ${A.running ? "disabled" : ""}>${esc(A.text)}</textarea>
-      <div class="pe-chips">${examples.map((t) => `<button data-pact="assist-example" data-text="${esc(t)}" title="${esc(t)}" ${A.running ? "disabled" : ""}>${esc(short(t))}</button>`).join("")}</div>
-      <button class="btn primary" style="width:100%" data-pact="assist-run" ${A.running || !AI.ready ? "disabled" : ""}>${A.running ? `<span class="spin"></span> Designing… a minute or two` : mode === "new" ? "Design it" : "Make the change"}</button>
-      ${AI.ready ? "" : `<p class="note-off">The assistant is off on this deployment (no API key).</p>`}
-      ${mode === "new" && hasRooms && !A.running && !r ? `<p class="tiny muted">This replaces the rooms, doors and windows. One undo brings them back.</p>` : ""}
-      ${A.error ? `<p class="assist-err">${esc(A.error)}</p>` : ""}
-      ${feed ? `<div class="assist-feed" id="assist-feed">${feed}</div>` : ""}${resultBox}`;
-  }
 
   function applyAssistPlan(p) {
     const before = new Set(E.plan.rooms.map((r) => r.id));
@@ -1427,26 +1673,217 @@ window.GTPlans = (() => {
     }
   }
 
+  function chatHello() {
+    const empty = !E.plan.rooms.length, ex = empty ? EX_NEW : EX_EDIT;
+    return `<div class="msg-a hello"><div class="av">W</div><div class="body">
+      <b>${empty ? "Hi, I'm your AI designer." : "Ready when you are."}</b>
+      <p>${empty ? "Tell me what you want to build, or attach a photo of a sketch, a drawing or an old plan, and I'll lay it out on the canvas."
+        : "Ask me for any change in plain words. I'll make it on the canvas, and you can undo each reply."}
+        Then ask for changes: <i>“make the kitchen bigger”</i>, <i>“add a garage on the left”</i>, <i>“move the bathroom next to the bedroom”</i>.</p>
+      <div class="pe-chips">${ex.map((t) => `<button type="button" data-pact="chat-example" data-text="${esc(t)}" title="${esc(t)}">${esc(short(t))}</button>`).join("")}</div>
+      <p class="tiny muted">I use Muse Wonder to design and Muse Spark 1.3 to read drafts; the code checks every room, door and window. You can also draw by hand with the tools on the left.</p></div></div>`;
+  }
+
+  function chatMessage(m, i, lastAi) {
+    if (m.role === "user") {
+      return `<div class="msg-u"><div class="bubble">${m.thumb ? `<img src="${m.thumb}" alt="" data-zoom data-caption="${esc(m.file || "draft")}">` : ""}
+        ${m.file ? `<div class="file">📎 ${esc(m.file)}</div>` : ""}${m.text ? `<div>${esc(m.text)}</div>` : ""}</div></div>`;
+    }
+    const steps = m.steps || [], working = m.status === "working";
+    const last = [...steps].reverse().find((x) => x.kind !== "turn");
+    const reading = m.reading ? `<div class="reading"><b>📐 Read your draft</b>${esc(m.reading.what_it_is || "")}${m.reading.rooms?.length ? `: ${m.reading.rooms.length} rooms
+      (${esc(m.reading.rooms.slice(0, 8).map((r) => r.name).join(", "))}${m.reading.rooms.length > 8 ? "…" : ""})` : ""}</div>` : "";
+    return `<div class="msg-a ${m.status}"><div class="av">W</div><div class="body">${reading}
+      ${working ? `<div class="working"><span class="spin"></span> ${esc(last ? last.text.slice(0, 120) : "Thinking…")}</div>` : ""}
+      ${m.text ? `<p>${esc(m.text)}</p>` : ""}
+      ${m.issues?.length ? `<ul class="bad">${m.issues.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
+      ${steps.length ? `<details ${working ? "open" : ""}><summary>${steps.filter((x) => x.kind === "ok" || x.kind === "no").length} steps on the canvas</summary>
+        <div class="assist-feed">${feedHtml({ feed: steps })}</div></details>` : ""}
+      ${m.stats ? `<div class="stats">${esc(m.stats)}</div>` : ""}
+      ${m.before && i === lastAi && !m.undone && !working ? `<button type="button" class="link small" data-pact="chat-undo" data-i="${i}">↶ Undo this change</button>` : ""}
+      ${m.undone ? `<span class="tiny muted">Undone</span>` : ""}</div></div>`;
+  }
+
+  function paintChat() {
+    const log = $("#chat-log");
+    if (!log) return;
+    const lastAi = E.chat.map((m) => m.role).lastIndexOf("ai");
+    log.innerHTML = (E.chat.length ? "" : chatHello()) + E.chat.map((m, i) => chatMessage(m, i, lastAi)).join("")
+      + (E.chat.length && !E.assist.running ? `<div class="chat-more">${(E.plan.rooms.length ? EX_EDIT : EX_NEW).slice(0, 3).map((t) =>
+        `<button type="button" data-pact="chat-example" data-text="${esc(t)}">${esc(short(t))}</button>`).join("")}</div>` : "");
+    log.scrollTop = log.scrollHeight;
+    const att = $("#chat-att");
+    att.innerHTML = E.chatFile ? `<span>📎 ${esc(E.chatFile.name)} <span class="muted">· starts a new layout from your draft</span></span>
+      <button type="button" class="icon-btn" data-pact="chat-unattach" aria-label="Remove attachment">×</button>` : "";
+    $("#chat-send").disabled = E.assist.running || !AI.ready;
+    $("#chat-text").disabled = E.assist.running;
+    $("#chat-text").placeholder = !AI.ready ? "The AI designer is off on this deployment (no API key)"
+      : E.plan.rooms.length ? "Ask for a change, or a question about the design…" : "Describe what you want to build…";
+  }
+
+  function bindChat() {
+    const form = $("#chat-form"), text = $("#chat-text"), file = $("#chat-file");
+    form.onsubmit = (e) => { e.preventDefault(); chatSend(text.value, E.chatFile); };
+    text.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } };
+    file.onchange = () => { E.chatFile = file.files[0] || null; file.value = ""; paintChat(); text.focus(); };
+  }
+
+  async function smallImage(file, side) {
+    const bitmap = await createImageBitmap(file), k = Math.min(1, side / Math.max(bitmap.width, bitmap.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(bitmap.width * k);
+    c.height = Math.round(bitmap.height * k);
+    c.getContext("2d").drawImage(bitmap, 0, 0, c.width, c.height);
+    return c;
+  }
+
+  function saveChat() {
+    E.plan.chat = E.chat.slice(-40).map(({ role, text, file, stats, status, issues, reading }) => ({ role, text, file, stats, issues,
+      status: status === "working" ? "error" : status, reading: reading ? { what_it_is: reading.what_it_is, rooms: (reading.rooms || []).map((r) => ({ name: r.name })) } : undefined }));
+    changed(false);
+  }
+
+  async function chatSend(text, file) {
+    text = (text || "").trim();
+    if (E.assist.running || (!text && !file)) return;
+    const planId = E.plan.id, before = snapshot(), isImage = file && /^image\//.test(file.type);
+    const user = { role: "user", text, file: file?.name, thumb: isImage ? (await smallImage(file, 320)).toDataURL("image/jpeg", 0.8) : null };
+    const ai = { role: "ai", text: "", steps: [], status: "working" };
+    const history = E.chat.filter((m) => m.text).slice(-8).map((m) => ({ role: m.role, text: m.text }));
+    E.chat.push(user, ai);
+    $("#chat-text").value = "";
+    E.chatFile = null;
+    const mode = file || !E.plan.rooms.length ? "new" : "edit";
+    Object.assign(E.assist, { running: true, runMode: mode });
+    if (mode === "new") { E.plan.rooms = []; E.plan.openings = []; E.plan.items = []; E.plan.notes = []; }
+    Object.assign(E, { sel: null, tool: "select", tab: "ai" });
+    if (E.mode === "simulate") setMode("design");
+    paintChat();
+    render(true);
+    const live = () => E.plan?.id === planId && $("#plan-editor");
+    const form = new FormData();
+    form.append("message", text);
+    form.append("plan", before);
+    form.append("history", JSON.stringify(history));
+    if (file) {
+      const blob = isImage ? await new Promise((r) => smallImage(file, 2000).then((c) => c.toBlob(r, "image/jpeg", 0.88))) : file;
+      form.append("file", blob, isImage ? file.name.replace(/\.\w+$/, "") + ".jpg" : file.name);
+    }
+    try {
+      const res = await fetch("/api/studio/chat", { method: "POST", body: form });
+      if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(body.detail || `the server answered ${res.status}`); }
+      const reader = res.body.getReader(), decoder = new TextDecoder();
+      let buf = "", done = false;
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buf += decoder.decode(chunk.value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line || !live()) continue;
+          const ev = JSON.parse(line);
+          if (ev.type === "note") ai.steps.push({ kind: "note", text: ev.text });
+          else if (ev.type === "turn") ai.steps.push({ kind: "turn", text: `Turn ${ev.turn} · thought for ${ev.thinking_s} s · ${ev.calls} tool call${ev.calls === 1 ? "" : "s"}` });
+          else if (ev.type === "sketch") ai.reading = ev.reading;
+          else if (ev.type === "tool") { ai.steps.push({ kind: ev.ok ? "ok" : "no", text: ev.brief }); if (ev.plan) applyAssistPlan(ev.plan); }
+          else if (ev.type === "error") throw new Error(ev.message);
+          else if (ev.type === "done") {
+            done = true;
+            applyAssistPlan(ev.plan);
+            E.flash = new Set();
+            if (mode === "new" && ev.name) { E.plan.name = ev.name; const n = $("#pe-name"); if (n) n.value = ev.name; }
+            if (mode === "new" && KINDS[ev.kind]) { E.plan.kind = ev.kind; const k = $("#pe-kind"); if (k) k.value = ev.kind; }
+            Object.assign(ai, { status: "done", before, text: ev.summary || (ev.finished ? "Done." : "I stopped before the plan passed every check:"),
+              issues: ev.finished ? [] : ev.check?.errors, stats: `${ev.check.rooms} rooms · ${fmtA(ev.check.total_area_m2)} · ${Math.round(ev.seconds)} s · $${(ev.cost_usd || 0).toFixed(2)}` });
+            E.undo.push(before);
+            E.redo = [];
+            continue;
+          }
+          paintChat();
+          render();
+        }
+      }
+      if (!done) throw new Error("the connection closed before it finished");
+    } catch (err) {
+      if (!live()) return;
+      Object.assign(ai, { status: "error", text: `I couldn't finish that: ${err.message || err}. Your design is back as it was.` });
+      E.flash = new Set();
+      Object.assign(E.plan, JSON.parse(before));
+    }
+    E.assist.running = false;
+    if (!live()) return;
+    if (E.mode === "design") fitToScreen();
+    saveChat();
+    paintChat();
+    render(true);
+  }
+
   Object.assign(EDIT_ACTIONS, {
-    assist: () => { E.assist.open = !E.assist.open; E.sel = null; render(true); if (E.assist.open) setTimeout(() => $("#assist-text")?.focus(), 0); },
-    "assist-close": () => { E.assist.open = false; render(true); },
-    "assist-mode": (el) => { E.assist.mode = el.dataset.mode; E.assist.result = null; render(true); },
-    "assist-example": (el) => { E.assist.text = el.dataset.text; render(true); },
-    "assist-run": runAssist,
+    stab: (el) => { E.tab = el.dataset.stab; paintTabs(); if (E.tab === "ai") $("#chat-text")?.focus(); else paintSide(true); },
+    snap: () => { E.snap = !E.snap; paintTools(); },
+    "ly-eye": (el) => {
+      const k = el.dataset.l, L = E.layers.hide;
+      L.has(k) ? L.delete(k) : L.add(k);
+      if (E.sel && L.has(LIST[E.sel.kind])) E.sel = null;
+      render(true);
+    },
+    "ly-lock": (el) => { const k = el.dataset.l, L = E.layers.lock; L.has(k) ? L.delete(k) : L.add(k); render(true); },
+    "ly-open": (el) => { const k = el.dataset.l, O = E.layerOpen; O.has(k) ? O.delete(k) : O.add(k); paintLayers(); },
+    "ly-sel": (el) => select(el.dataset.k, el.dataset.id),
+    "chat-example": (el) => { const t = $("#chat-text"); t.value = el.dataset.text; t.focus(); },
+    "chat-unattach": () => { E.chatFile = null; paintChat(); },
+    "chat-undo": (el) => {
+      const m = E.chat[Number(el.dataset.i)];
+      if (!m?.before || E.assist.running) return;
+      E.redo.push(snapshot());
+      restore(m.before);
+      m.undone = true;
+      saveChat();
+      paintChat();
+    },
+    "walk-lock": () => E.three?.lockPointer(),
+    "file-new": () => { const plan = TEMPLATES.blank.make(); plan.name = "Untitled design"; savePlan(plan); E.openAssist = true; location.hash = `#/studio/${plan.id}`; },
+    "file-import": () => $("#studio-import")?.click(),
+    "file-dup": () => { const copy = { ...JSON.parse(JSON.stringify(E.plan)), id: uid("p"), name: `${E.plan.name} (copy)`, chat: [] }; savePlan(copy); location.hash = `#/studio/${copy.id}`; },
+    "export-glb": async () => {
+      $("#pe-export").open = false;
+      try { download(await (await ensure3d()).exportGLB(), `${slug(E.plan)}.glb`); } catch (err) { alert(`The 3D model couldn't be exported: ${err.message || err}`); }
+    },
+    "export-shot": async () => {
+      $("#pe-export").open = false;
+      try {
+        if (E.mode !== "3d" && E.mode !== "walk") setMode("3d");
+        const three = await ensure3d();
+        setTimeout(async () => download(await (await fetch(three.snapshot())).blob(), `${slug(E.plan)}-3d.png`), 300);
+      } catch (err) { alert(`The 3D view couldn't be captured: ${err.message || err}`); }
+    },
   });
 
   window.addEventListener("resize", () => { if ($("#plan-editor") && E.view) render(); });
 
   function route(hash, app) {
+    if (hash.startsWith("#/studio")) { // the studio opens your latest design, or a new one with the AI designer
+      const id = decodeURIComponent(hash.slice(9));
+      if (id) return renderEditor(app, id);
+      let plan = Object.values(loadAll()).sort((a, b) => b.updated - a.updated)[0];
+      if (!plan) { plan = TEMPLATES.blank.make(); plan.name = "Untitled design"; savePlan(plan); E.openAssist = true; }
+      location.replace(`#/studio/${plan.id}`);
+      return;
+    }
     const id = hash.startsWith("#/plan/") ? decodeURIComponent(hash.slice(7)) : "";
     if (id) renderEditor(app, id);
     else renderList(app);
   }
 
-  // From the home page: a new plan with the design assistant open and running on the description.
+  // From the home page: a new design with the AI designer working on the description.
   function designFrom(text) {
+    const plan = TEMPLATES.blank.make();
+    plan.name = "Untitled design";
+    savePlan(plan);
     Object.assign(E, { openAssist: true, prefill: text, autorun: true });
-    newPlan("blank");
+    location.hash = `#/studio/${plan.id}`;
   }
 
   // The home page's drawing: the two-bedroom template with the simulation's sun at 10:00 on 21 December in Delhi and
@@ -1484,5 +1921,6 @@ window.GTPlans = (() => {
     }
   }
 
-  return { route, drawPlan, fitView, walls, TEMPLATES, designFrom, heroPreview };
+  return { route, drawPlan, fitView, walls, TEMPLATES, designFrom, heroPreview,
+    geometry: { walls, openingGeom, shared, footprint, bounds, FLOORS, defaultFloor } };
 })();
