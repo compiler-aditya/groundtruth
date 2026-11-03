@@ -429,35 +429,87 @@ window.GTPlans = (() => {
   }
 
   /* ---------------- designs page ---------------- */
+  const isDark = () => document.documentElement.dataset.theme === "dark";
+  const themeLabel = () => (isDark() ? "Light mode" : "Dark mode");
+  function toggleTheme() {
+    const dark = !isDark();
+    if (dark) document.documentElement.dataset.theme = "dark"; else delete document.documentElement.dataset.theme;
+    try { localStorage.setItem("gt.theme", dark ? "dark" : "light"); } catch {}
+    $$("[data-pact=theme]").forEach((b) => { if (!b.classList.contains("theme-btn")) b.textContent = themeLabel(); });
+  }
+  const THEME_BTN = `<button class="theme-btn" data-pact="theme" aria-label="Switch between light and dark" title="Light or dark">
+    <svg class="moon" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 12.5A6.5 6.5 0 017.5 4a6.5 6.5 0 108.5 8.5z"/></svg>
+    <svg class="sun" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="10" cy="10" r="3.4"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M4.3 15.7l1.4-1.4M14.3 5.7l1.4-1.4"/></svg></button>`;
   const appBar = () => `<header class="app-bar"><a class="app-brand" href="/" title="GroundTruth home"><span class="mark">✓</span><span>GroundTruth</span></a>
-    <span class="app-tag">Studio</span><span class="pe-spacer"></span><span class="acct-slot" id="acct"></span></header>`;
+    <span class="app-tag">Studio</span><span class="pe-spacer"></span>${THEME_BTN}<span class="acct-slot" id="acct"></span></header>`;
+  // The blank template's picture: an empty sheet with a dashed room to draw.
+  const BLANK_ART = `<svg viewBox="0 0 280 180" aria-hidden="true"><rect width="280" height="180" fill="${PAPER}"/>
+    <rect x="86" y="44" width="108" height="92" rx="2" fill="none" stroke="#c9c6bd" stroke-width="2" stroke-dasharray="7 6"/>
+    <path d="M140 76v28M126 90h28" stroke="${ACCENT}" stroke-width="2.5" stroke-linecap="round"/></svg>`;
+
   function renderList(app) {
     const mine = Object.values(loadAll()).sort((a, b) => b.updated - a.updated), user = signedIn();
     const guestNote = window.GTAuth?.on && !user ? `<div class="app-note"><span>Your designs are kept in this browser.</span>
       <button class="btn small primary" data-acct="up">Create a free account</button><button class="link" data-acct="in">Sign in</button></div>` : "";
     const designs = mine.length ? `<h2 class="app-h2">Your designs <span>${mine.length}</span><small>${user ? "in your account" : "in this browser"}</small></h2>
       <div class="plan-grid">${mine.map((p) => `<div class="plan-card mine">
-        <a href="#/d/${esc(p.id)}" class="pc-open">${thumb(p)}</a><div class="pc-body"><a href="#/d/${esc(p.id)}"><b>${esc(p.name)}</b></a>
+        <a href="#/d/${esc(p.id)}" class="pc-open" aria-label="Open ${esc(p.name)}">${thumb(p)}</a><div class="pc-body"><a href="#/d/${esc(p.id)}"><b>${esc(p.name)}</b></a>
         <span class="faint tiny">${esc(KINDS[p.kind] || "Plan")} · ${p.rooms.length} rooms · ${fmtA(totalArea(p))} · edited ${esc(new Date(p.updated).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }))}</span>
-        <span class="pc-actions"><a class="btn small" href="#/d/${esc(p.id)}">Open</a><button class="btn small" data-pact="dup" data-id="${esc(p.id)}">Duplicate</button>
+        <span class="pc-actions"><a class="btn small pc-openbtn" href="#/d/${esc(p.id)}">Open</a><button class="btn small" data-pact="dup" data-id="${esc(p.id)}">Duplicate</button>
         <button class="btn small" data-pact="del" data-id="${esc(p.id)}">Delete</button></span></div></div>`).join("")}</div>` : "";
+    const off = !AI.ready;
     app.innerHTML = `${appBar()}
     <div class="app-home">
-      <div class="app-head"><h1>${user ? `Hi, ${esc(user.name.split(" ")[0])}` : "Start a design"}</h1>${guestNote}</div>
+      <div class="app-head"><div>${user ? `<p class="app-hi">Hi, ${esc(user.name.split(" ")[0])}</p>` : ""}<h1>What shall we build?</h1></div>${guestNote}</div>
+      <form class="app-ask" id="app-ask">
+        <div class="app-ask-box">
+          <textarea id="ask-text" rows="2" maxlength="1500" aria-label="Describe a building" ${off ? "disabled" : ""}
+            placeholder="${off ? "The AI designer is off on this server. Start from a template below." : "Describe a building, e.g. a two-bedroom flat of about 70 m² with an open kitchen and a balcony"}"></textarea>
+          <div class="app-ask-bar">
+            <label class="btn small ${off ? "is-off" : ""}" title="A hand sketch, a photo of a drawing or an old plan (JPG, PNG, PDF)">📎 Upload a sketch
+              <input type="file" id="ask-file" accept="image/jpeg,image/png,image/webp,.pdf" hidden ${off ? "disabled" : ""}></label>
+            <span class="app-ask-file" id="ask-file-name"></span><span class="pe-spacer"></span>
+            <button class="btn primary" type="submit" id="ask-go" ${off ? "disabled" : ""}>✨ Design it</button>
+          </div>
+        </div>
+        ${off ? "" : `<div class="app-ask-ex"><span>Try</span>${EX_NEW.map(([label, text]) => `<button type="button" data-pact="ask-example" data-text="${esc(text)}" title="${esc(text)}">${esc(label)}</button>`).join("")}</div>`}
+      </form>
       ${designs}
-      <h2 class="app-h2">${mine.length ? "Start a new design" : "Start from"}</h2>
-      <div class="plan-grid"><button class="plan-card ai" data-pact="new-ai"><div class="ai-art" aria-hidden="true">✨</div><div class="pc-body"><b>Describe it to the AI</b>
-        <span class="muted small">Say it, or upload a sketch.</span></div></button>
-        ${Object.entries(TEMPLATES).map(([key, t]) => {
+      <h2 class="app-h2">${mine.length ? "Or start a new one from a template" : "Or start from a template"}</h2>
+      <div class="plan-grid">${Object.entries(TEMPLATES).map(([key, t]) => {
         const p = t.make();
-        return `<button class="plan-card" data-pact="new" data-template="${key}">${thumb(p)}<div class="pc-body"><b>${esc(t.name)}</b>
+        return `<button class="plan-card" data-pact="new" data-template="${key}">${key === "blank" ? BLANK_ART : thumb(p)}<div class="pc-body"><b>${esc(t.name)}</b>
           <span class="faint tiny">${p.rooms.length ? `${p.rooms.length} rooms · ${fmtA(totalArea(p))}` : "Draw it yourself"}</span></div></button>`;
       }).join("")}</div>
       <p class="small muted" style="margin:12px 0 0"><button class="link" data-pact="import">Open a plan file (.json)</button>
         <input type="file" id="plan-import" accept=".json,application/json" hidden></p>
     </div>`;
     $("#plan-import").onchange = (e) => importFile(e.target.files[0]);
+    const form = $("#app-ask"), text = $("#ask-text"), file = $("#ask-file");
+    const showFile = () => {
+      const f = file.files[0];
+      $("#ask-file-name").innerHTML = f ? `<span>📎 ${esc(f.name)}</span><button type="button" class="icon-btn" aria-label="Remove the sketch">×</button>` : "";
+      $("#ask-file-name button")?.addEventListener("click", () => { file.value = ""; showFile(); });
+      $("#ask-go").textContent = f ? "✨ Lay it out" : "✨ Design it";
+    };
+    file.onchange = () => { showFile(); text.focus(); };
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      if (!text.value.trim() && !file.files[0]) { text.focus(); text.classList.add("nudge"); setTimeout(() => text.classList.remove("nudge"), 600); return; }
+      startAi(text.value.trim(), file.files[0] || null);
+    };
+    text.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } };
     window.GTAuth?.mount($("#acct"));
+  }
+
+  // A new design with the AI designer starting on a description, a sketch, or both. The studio is one page,
+  // so a chosen file is handed straight to the editor.
+  function startAi(text, file) {
+    const plan = TEMPLATES.blank.make();
+    plan.name = "Untitled design";
+    savePlan(plan);
+    Object.assign(E, { openAssist: true, prefill: text || "", pendingFile: file || null, autorun: !!(text || file) });
+    location.hash = `#/d/${plan.id}`;
   }
 
   function newPlan(key) {
@@ -479,6 +531,8 @@ window.GTPlans = (() => {
   }
 
   document.addEventListener("click", (e) => {
+    // the File and Export menus close after a choice, and on a click anywhere else
+    for (const m of $$("details.pe-menu[open]")) if (!m.contains(e.target) || e.target.closest(".pe-menu-list button, .pe-menu-list a")) m.open = false;
     const el = e.target.closest("[data-pact]");
     if (!el) return;
     const act = el.dataset.pact;
@@ -497,16 +551,20 @@ window.GTPlans = (() => {
   /* ---------------- editor ---------------- */
   const E = { plan: null, view: null, sel: null, tool: "select", undo: [], redo: [], drag: null, hover: null, ghost: null, guides: [], space: false, saveTimer: 0, savedOk: true,
     assist: { open: false, running: false, mode: "edit", text: "", feed: [], result: null, error: null }, flash: new Set(), openAssist: false,
-    tab: "ai", layers: { hide: new Set(["dims"]), lock: new Set() }, layerOpen: new Set(), snap: true, clip: null, measure: null, chat: [], chatFile: null, three: null };
+    tab: "ai", layers: { hide: new Set(["dims"]), lock: new Set() }, layerOpen: new Set(), snap: true, clip: null, measure: null, chat: [], chatFile: null, three: null,
+    touches: new Map() };
   const AI = { ready: true };
-  fetch("/api/health").then((r) => r.json()).then((h) => { AI.ready = h?.keys?.meta !== false; }).catch(() => {});
+  AI.check = fetch("/api/health").then((r) => r.json()).then((h) => { AI.ready = h?.keys?.meta !== false; }).catch(() => {});
   const EDIT_ACTIONS = {};
 
   function renderEditor(app, id) {
     const plan = getPlan(id);
     if (!plan) {
-      app.innerHTML = `<div class="page-head"><h1>Design not found</h1><p class="muted">It may have been made in another browser. Designs are saved per browser.</p>
+      app.innerHTML = `${appBar()}<div class="app-home"><h1>Design not found</h1>
+        <p class="muted">${signedIn() ? "It isn't in this account. It may belong to another account, or have been deleted."
+          : "It may have been made in another browser, or in an account. Sign in to see the designs in your account."}</p>
         <a class="btn" href="#/">← All designs</a></div>`;
+      window.GTAuth?.mount($("#acct"));
       return;
     }
     E.three?.pause();
@@ -514,7 +572,7 @@ window.GTPlans = (() => {
     plan.notes = plan.notes || [];
     plan.site = plan.site || defaultSite();
     Object.assign(E, { plan, sel: null, tool: "select", undo: [], redo: [], drag: null, hover: null, ghost: null, guides: [], view: null, flash: new Set(),
-      measure: null, chat: plan.chat || [], chatFile: null, tab: E.openAssist || !plan.rooms.length ? "ai" : E.tab || "ai",
+      measure: null, touches: new Map(), chat: plan.chat || [], chatFile: null, tab: E.openAssist || !plan.rooms.length ? "ai" : E.tab || "ai",
       assist: { open: false, running: false, mode: "edit", text: "", feed: [], result: null, error: null } });
     E.openAssist = false;
     stopSim();
@@ -527,14 +585,14 @@ window.GTPlans = (() => {
         <details class="pe-menu left" id="pe-file"><summary class="btn small" title="Projects and files">☰ File</summary><div class="pe-menu-list">
           <button data-pact="file-new">New blank design</button><a href="#/">All designs and templates</a>
           <button data-pact="file-import">Open a plan file (.json)…</button><input type="file" id="studio-import" accept=".json,application/json" hidden>
-          <button data-pact="file-dup">Duplicate this design</button></div></details>
+          <button data-pact="file-dup">Duplicate this design</button><button data-pact="theme">${themeLabel()}</button></div></details>
         <input class="pe-name" id="pe-name" value="${esc(plan.name)}" aria-label="Design name" maxlength="80">
-        <select id="pe-kind" aria-label="Building type">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${plan.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select>
         <div class="pe-seg pe-mode" id="pe-mode">${VIEWS.map(([k, label]) => `<button data-pact="mode" data-mode="${k}">${label}</button>`).join("")}</div>
-        <span class="pe-status small muted" id="pe-status"></span>
+        <span class="pe-status small muted" id="pe-status" role="status"></span>
         <span class="pe-spacer"></span>
-        <span class="pe-zoom"><button class="btn small" data-pact="zoom-out" title="Zoom out">−</button><span id="pe-scale" class="small mono"></span>
-          <button class="btn small" data-pact="zoom-in" title="Zoom in">+</button><button class="btn small" data-pact="fit" title="Zoom to fit (0)">Fit</button></span>
+        <span class="pe-zoom"><button class="btn small" data-pact="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
+          <button class="btn small pe-fit" id="pe-scale" data-pact="fit" title="Zoom to fit (0)">100%</button>
+          <button class="btn small" data-pact="zoom-in" title="Zoom in" aria-label="Zoom in">+</button></span>
         <details class="pe-menu" id="pe-export"><summary class="btn small primary">Export ▾</summary><div class="pe-menu-list">
           <button data-pact="export-png">Drawing sheet (PNG)</button><button data-pact="export-svg">Drawing sheet (SVG)</button>
           <button data-pact="export-glb">3D model (.glb) for Blender, SketchUp, AR</button><button data-pact="export-shot">3D view as an image (PNG)</button>
@@ -562,7 +620,6 @@ window.GTPlans = (() => {
       </div>
     </div>`;
     $("#pe-name").oninput = (e) => { E.plan.name = e.target.value || "Untitled design"; changed(false); };
-    $("#pe-kind").onchange = (e) => { E.plan.kind = e.target.value; changed(false); };
     $("#studio-import").onchange = (e) => importFile(e.target.files[0]);
     const svg = $("#pc");
     svg.addEventListener("wheel", onWheel, { passive: false });
@@ -577,11 +634,12 @@ window.GTPlans = (() => {
       fitToScreen();
       render(true);
       paintChat();
-      if (E.autorun) {
+      if (E.autorun) { // started from a description or a sketch on the designs page
         E.autorun = false;
-        const text = E.prefill;
-        E.prefill = "";
-        if (AI.ready && text) chatSend(text, null);
+        const text = E.prefill, file = E.pendingFile;
+        Object.assign(E, { prefill: "", pendingFile: null });
+        if (AI.ready) chatSend(text, file);
+        else $("#chat-text").value = text || "";
       }
     });
   }
@@ -592,7 +650,8 @@ window.GTPlans = (() => {
   }
   function fitToScreen() {
     const { W, H } = canvasSize();
-    E.view = fitView(E.plan, W, H, 60);
+    E.view = fitView(E.plan, W, H, W < 500 ? 24 : 60);
+    E.fitS = E.view.s; // the zoom readout is relative to this
   }
   function toWorld(ev) {
     const r = $("#pc").getBoundingClientRect();
@@ -648,6 +707,11 @@ window.GTPlans = (() => {
     measure: "Drag to measure",
     note: "Click to pin a note",
   };
+  const COARSE = window.matchMedia?.("(pointer: coarse)").matches;
+  if (COARSE) { // touch screens: tap, and two fingers to zoom
+    for (const k in HINTS) HINTS[k] = HINTS[k].replace(/^Click/, "Tap").replace(" · Alt: no snapping", "");
+    HINTS.select = "Tap to edit · drag to move · pinch to zoom";
+  }
   const GRID = 0.1, MIN = 0.5;
   const g = (v, step = GRID) => r2(Math.round(v / step) * step);
   const LIST = { room: "rooms", opening: "openings", item: "items", note: "notes" };
@@ -749,7 +813,31 @@ window.GTPlans = (() => {
     return { ...spot, ok: !clash, why: clash ? "Overlaps another door or window" : "" };
   }
 
+  // Touch: one finger edits as a mouse does; a second finger turns it into a pinch that zooms and pans,
+  // and puts back whatever the first finger had started to move.
+  const pinchOf = () => {
+    const [a, b] = [...E.touches.values()];
+    return { d: Math.hypot(a.px - b.px, a.py - b.py) || 1, mx: (a.px + b.px) / 2, my: (a.py + b.py) / 2 };
+  };
+  function startPinch() {
+    const d = E.drag;
+    if (d?.before && d.mode !== "draw") Object.assign(E.plan, JSON.parse(d.before));
+    Object.assign(E, { ghost: null, guides: [], measure: null, drag: { mode: "pinch", start: pinchOf(), view: { ...E.view } } });
+    render(true);
+  }
+  function movePinch() {
+    const { start: a, view: v } = E.drag, b = pinchOf(), s = clamp(v.s * (b.d / a.d), 8, 400), k = s / v.s;
+    E.view = { s, tx: b.mx - (a.mx - v.tx) * k, ty: b.my - (a.my - v.ty) * k };
+    render();
+  }
+
   function onPointerDown(ev) {
+    if (ev.pointerType === "touch") {
+      const q = toWorld(ev);
+      E.touches.set(ev.pointerId, { px: q.px, py: q.py });
+      if (E.touches.size === 2) { try { $("#pc").setPointerCapture(ev.pointerId); } catch {} startPinch(); return; }
+      if (E.touches.size > 2) return;
+    }
     if (ev.button !== 0 && ev.button !== 1) return;
     if (E.assist.running || E.mode !== "design") { E.drag = { mode: "pan", start: toWorld(ev), view: { ...E.view } }; return; }
     try { $("#pc").setPointerCapture(ev.pointerId); } catch { /* synthetic events have no capturable pointer */ }
@@ -818,6 +906,11 @@ window.GTPlans = (() => {
   }
 
   function onPointerMove(ev) {
+    if (ev.pointerType === "touch" && E.touches.has(ev.pointerId)) {
+      const q = toWorld(ev);
+      E.touches.set(ev.pointerId, { px: q.px, py: q.py });
+      if (E.drag?.mode === "pinch") { if (E.touches.size === 2) movePinch(); return; }
+    }
     const d = E.drag;
     if (!d) {
       if (E.tool === "door" || E.tool === "window") { E.hover = wallAt(toWorld(ev), OPENING_TYPES[E.tool][1]); render(); }
@@ -874,7 +967,9 @@ window.GTPlans = (() => {
     render();
   }
 
-  function onPointerUp() {
+  function onPointerUp(ev) {
+    if (ev?.pointerType === "touch") E.touches.delete(ev.pointerId);
+    if (E.drag?.mode === "pinch") { if (!E.touches.size) E.drag = null; return; } // the last finger up ends it, without a tap
     const d = E.drag;
     E.drag = null;
     E.guides = [];
@@ -1090,10 +1185,16 @@ window.GTPlans = (() => {
     const el = $("#pe-status");
     if (!el) return;
     const C = Cloud;
-    el.classList.toggle("bad", !E.savedOk || C.state === "error");
-    el.textContent = !E.savedOk ? "Not saved: this browser blocks storage. Export the plan to keep it."
-      : !signedIn() ? (window.GTAuth?.on ? "Saved in this browser · sign in to keep it" : "Saved in this browser")
-      : C.state === "saving" ? "Saving…" : C.state === "error" ? `Saved here only: ${C.msg || "couldn't reach your account"}` : "Saved to your account";
+    const bad = !E.savedOk || C.state === "error";
+    // [the word that always shows, the rest, shown on wide screens and in the tooltip]
+    const [word, rest] = !E.savedOk ? ["Not saved", ": this browser blocks storage. Export the plan to keep it."]
+      : !signedIn() ? ["Saved", window.GTAuth?.on ? " in this browser · sign in to keep it" : " in this browser"]
+      : C.state === "saving" ? ["Saving…", ""] : C.state === "error" ? ["Saved here only", `: ${C.msg || "couldn't reach your account"}`] : ["Saved", " to your account"];
+    el.classList.toggle("bad", bad);
+    el.classList.toggle("busy", C.state === "saving" && !bad);
+    el.title = word + rest;
+    const html = `<i aria-hidden="true"></i><span>${esc(word)}</span><span class="more">${esc(rest)}</span>`;
+    if (el._html !== html) { el.innerHTML = html; el._html = html; }
   }
 
   function render(sideToo = false) {
@@ -1122,7 +1223,7 @@ window.GTPlans = (() => {
       overlay: sim ? simOverlay : overlay })
       + scaleBar(W, H) + (sim ? simHud(W) : "");
     if (sim) placeWalkers();
-    $("#pe-scale").textContent = `${Math.round(E.view.s)} px/m`;
+    $("#pe-scale").textContent = `${Math.round((E.view.s / (E.fitS || E.view.s)) * 100)}%`;
     $("#pe-hint").textContent = E.drag ? "" : E.assist.running ? "✨ Designing…"
       : E.mode === "simulate" ? "Back to Plan to edit" : HINTS[E.tool] || "";
     $$("#pe-mode button").forEach((b) => b.classList.toggle("on", b.dataset.mode === E.mode));
@@ -1277,6 +1378,8 @@ window.GTPlans = (() => {
       ${p.openings.length ? `<h4>Doors and windows</h4><table class="pe-table">${p.openings.map((op) => `<tr data-pact="select-opening" data-id="${op.id}" data-select>
         <td><b>${marks(p)[op.id]}</b></td><td>${OPENING_TYPES[op.type][0]}</td><td>${esc(roomOf(p, op.room)?.name || "")}</td><td class="num">${fmtM(op.width)}</td></tr>`).join("")}</table>` : ""}
       <h4>Building</h4>
+      <label class="pe-field wide"><span>Building type</span><select data-meta="kind">${Object.entries(KINDS).map(([k, v]) =>
+        `<option value="${k}" ${(p.kind || "house") === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>
       <div class="pe-row"><label class="pe-field"><span>Wall height (m)</span><input type="number" step="0.1" min="2.2" max="6" data-meta="wallHeight" value="${p.wallHeight || 2.7}"></label>
         <label class="pe-field"><span>Notes</span><input disabled value="${(p.notes || []).length} pinned"></label></div>
       <h4>Drawing sheet</h4>
@@ -1592,7 +1695,7 @@ window.GTPlans = (() => {
     return `<h4>✨ Improve with AI</h4>
       <p class="tiny muted" style="margin:0 0 8px">Only changes that score higher are kept.</p>${compare}
       <textarea id="sim-goal" rows="2" maxlength="800" placeholder="e.g. ${esc(SIM_GOALS[0])}">${esc(S.goal || "")}</textarea>
-      <div class="pe-chips">${SIM_GOALS.map((t) => `<button data-pact="sim-goal" data-text="${esc(t)}" title="${esc(t)}">${esc(short(t))}</button>`).join("")}</div>
+      <div class="pe-chips">${SIM_GOALS.map((t) => `<button data-pact="sim-goal" data-text="${esc(t)}">${esc(t)}</button>`).join("")}</div>
       <button class="btn primary" style="width:100%" data-pact="sim-improve" ${AI.ready ? "" : "disabled"}>Improve the plan</button>
       ${A.error ? `<p class="assist-err">${esc(A.error)}</p>` : ""}`;
   }
@@ -1647,12 +1750,19 @@ window.GTPlans = (() => {
   });
 
   /* ---------------- AI designer chat ---------------- */
-  const EX_NEW = ["A three-bedroom family house of about 110 m² with an open kitchen and living area, two bathrooms and a hallway",
-    "A one-bedroom apartment of about 50 m² with a balcony", "A café of about 80 m² with seating, a counter, a kitchen, a store and two WCs",
-    "A small dental clinic with a reception, a waiting room, two treatment rooms, a staff room, a WC and a store"];
-  const EX_EDIT = ["Add a home office of about 9 m² next to the living room", "Make the kitchen bigger and open it to the living room",
-    "Give the main bedroom its own bathroom", "Add a window to every bedroom", "How big is the living room?"];
-  const short = (t) => t.split(" ").slice(0, 5).join(" ") + "…";
+  // [the chip's label, the message it puts in the box]
+  const EX_NEW = [
+    ["3-bed family house · 110 m²", "A three-bedroom family house of about 110 m² with an open kitchen and living area, two bathrooms and a hallway"],
+    ["1-bed flat with a balcony", "A one-bedroom apartment of about 50 m² with a balcony"],
+    ["Café · 80 m²", "A café of about 80 m² with seating, a counter, a kitchen, a store and two WCs"],
+    ["Dental clinic", "A small dental clinic with a reception, a waiting room, two treatment rooms, a staff room, a WC and a store"]];
+  const EX_EDIT = [
+    ["Add a home office", "Add a home office of about 9 m² next to the living room"],
+    ["Bigger, open kitchen", "Make the kitchen bigger and open it to the living room"],
+    ["En-suite for the main bedroom", "Give the main bedroom its own bathroom"],
+    ["A window in every bedroom", "Add a window to every bedroom"],
+    ["How big is the living room?", "How big is the living room?"]];
+  const chip = ([label, text]) => `<button type="button" data-pact="chat-example" data-text="${esc(text)}" title="${esc(text)}">${esc(label)}</button>`;
 
   const feedHtml = (A) => A.feed.map((f) => f.kind === "note" ? `<div class="msg">${esc(f.text)}</div>`
     : f.kind === "turn" ? `<div class="turn">${esc(f.text)}</div>`
@@ -1711,7 +1821,7 @@ window.GTPlans = (() => {
             applyAssistPlan(ev.plan);
             E.flash = new Set();
             if (mode === "new" && ev.name) { E.plan.name = ev.name; const n = $("#pe-name"); if (n) n.value = ev.name; }
-            if (mode === "new" && KINDS[ev.kind]) { E.plan.kind = ev.kind; const k = $("#pe-kind"); if (k) k.value = ev.kind; }
+            if (mode === "new" && KINDS[ev.kind]) { E.plan.kind = ev.kind; }
             Object.assign(A, { running: false, result: mode === "improve" ? null : ev, text: mode === "improve" ? A.text : "", mode: "edit" });
             E.undo.push(A.before);
             E.redo = [];
@@ -1738,7 +1848,7 @@ window.GTPlans = (() => {
     return `<div class="msg-a hello"><div class="av">W</div><div class="body">
       <b>${empty ? "What shall we build?" : "What should change?"}</b>
       ${empty ? `<p class="small muted">Or 📎 attach a sketch.</p>` : ""}
-      <div class="pe-chips">${ex.map((t) => `<button type="button" data-pact="chat-example" data-text="${esc(t)}" title="${esc(t)}">${esc(short(t))}</button>`).join("")}</div>
+      <div class="pe-chips">${ex.map(chip).join("")}</div>
       <div class="hello-models"><span class="chip model">muse-wonder</span><span class="chip model">muse-spark-1.3</span></div></div></div>`;
   }
 
@@ -1755,7 +1865,7 @@ window.GTPlans = (() => {
       ${working ? `<div class="working"><span class="spin"></span> ${esc(last ? last.text.slice(0, 120) : "Thinking…")}</div>` : ""}
       ${m.text ? `<p>${esc(m.text)}</p>` : ""}
       ${m.issues?.length ? `<ul class="bad">${m.issues.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
-      ${steps.length ? `<details ${working ? "open" : ""}><summary>${steps.filter((x) => x.kind === "ok" || x.kind === "no").length} steps on the canvas</summary>
+      ${steps.length ? `<details ${working ? "open" : ""}><summary>${((n) => `${n} step${n === 1 ? "" : "s"}`)(steps.filter((x) => x.kind === "ok" || x.kind === "no").length)} on the canvas</summary>
         <div class="assist-feed">${feedHtml({ feed: steps })}</div></details>` : ""}
       ${m.stats ? `<div class="stats">${esc(m.stats)}</div>` : ""}
       ${m.before && i === lastAi && !m.undone && !working ? `<button type="button" class="link small" data-pact="chat-undo" data-i="${i}">↶ Undo this change</button>` : ""}
@@ -1767,8 +1877,7 @@ window.GTPlans = (() => {
     if (!log) return;
     const lastAi = E.chat.map((m) => m.role).lastIndexOf("ai");
     log.innerHTML = (E.chat.length ? "" : chatHello()) + E.chat.map((m, i) => chatMessage(m, i, lastAi)).join("")
-      + (E.chat.length && !E.assist.running ? `<div class="chat-more">${(E.plan.rooms.length ? EX_EDIT : EX_NEW).slice(0, 3).map((t) =>
-        `<button type="button" data-pact="chat-example" data-text="${esc(t)}">${esc(short(t))}</button>`).join("")}</div>` : "");
+      + (E.chat.length && !E.assist.running ? `<div class="chat-more">${(E.plan.rooms.length ? EX_EDIT : EX_NEW).slice(0, 3).map(chip).join("")}</div>` : "");
     log.scrollTop = log.scrollHeight;
     const att = $("#chat-att");
     att.innerHTML = E.chatFile ? `<span>📎 ${esc(E.chatFile.name)} <span class="muted">· starts a new layout from your draft</span></span>
@@ -1852,7 +1961,7 @@ window.GTPlans = (() => {
             applyAssistPlan(ev.plan);
             E.flash = new Set();
             if (mode === "new" && ev.name) { E.plan.name = ev.name; const n = $("#pe-name"); if (n) n.value = ev.name; }
-            if (mode === "new" && KINDS[ev.kind]) { E.plan.kind = ev.kind; const k = $("#pe-kind"); if (k) k.value = ev.kind; }
+            if (mode === "new" && KINDS[ev.kind]) { E.plan.kind = ev.kind; }
             Object.assign(ai, { status: "done", before, text: ev.summary || (ev.finished ? "Done." : "I stopped before the plan passed every check:"),
               issues: ev.finished ? [] : ev.check?.errors, stats: `${ev.check.rooms} rooms · ${fmtA(ev.check.total_area_m2)} · ${Math.round(ev.seconds)} s · $${(ev.cost_usd || 0).toFixed(2)}` });
             E.undo.push(before);
@@ -1891,6 +2000,8 @@ window.GTPlans = (() => {
     "ly-open": (el) => { const k = el.dataset.l, O = E.layerOpen; O.has(k) ? O.delete(k) : O.add(k); paintLayers(); },
     "ly-sel": (el) => select(el.dataset.k, el.dataset.id),
     "chat-example": (el) => { const t = $("#chat-text"); t.value = el.dataset.text; t.focus(); },
+    "ask-example": (el) => { const t = $("#ask-text"); t.value = el.dataset.text; t.focus(); },
+    theme: toggleTheme,
     "chat-unattach": () => { E.chatFile = null; paintChat(); },
     "chat-undo": (el) => {
       const m = E.chat[Number(el.dataset.i)];
@@ -1923,6 +2034,7 @@ window.GTPlans = (() => {
 
   // studio.html: #/ the designs page, #/d/<id> a design, #/new a new design (with a brief from the home page, if any).
   function route(hash, app) {
+    window.scrollTo(0, 0); // a design opened from low on the designs page starts at its top bar
     if (hash.startsWith("#/new")) {
       const plan = TEMPLATES.blank.make();
       plan.name = "Untitled design";
@@ -1938,7 +2050,7 @@ window.GTPlans = (() => {
   }
 
   async function boot(app) {
-    await Promise.race([window.GTAuth?.ready, new Promise((r) => setTimeout(r, 3000))]);
+    await Promise.race([Promise.all([window.GTAuth?.ready, AI.check]), new Promise((r) => setTimeout(r, 3000))]);
     await Cloud.sync().catch(() => {});
     window.addEventListener("hashchange", () => route(location.hash, app));
     window.GTAuth?.onChange(async (user) => {
