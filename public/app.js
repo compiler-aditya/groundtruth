@@ -182,21 +182,28 @@ async function renderHome() {
   if (!S.pkg) app.innerHTML = `<p class="muted" style="padding:80px 0">Loading…</p>`;
   await load();
   const p = S.pkg, live = liveReady(), watch = live ? "live" : "replay";
+  const examples = (window.GTPlans.examples || []).slice(0, 3);
+  // With the AI designer on, the main action is describing a building; without it, opening the Studio.
+  const ask = live ? `<form class="app-ask hero-ask" id="brief">
+      <div class="app-ask-box"><textarea id="brief-text" rows="2" maxlength="800" aria-label="Describe a building to design"
+        placeholder="Describe a building: a three-bedroom house with an open kitchen…"></textarea>
+        <div class="app-ask-bar"><a class="btn small" href="/studio" title="Upload a hand sketch or an old plan in the Studio">📎 Have a sketch?</a>
+          <span class="pe-spacer"></span><button class="btn primary" type="submit">✨ Design it</button></div></div>
+      <div class="app-ask-ex"><span>Try</span>${examples.map(([label, text]) => `<button type="button" data-brief="${esc(text)}" title="${esc(text)}">${esc(label)}</button>`).join("")}</div>
+    </form>
+    <div class="ctas hero-alt"><button class="btn big" data-act="${watch}">▶ Watch a site check</button><a class="go" href="/studio">or open the Studio →</a></div>`
+    : `<div class="ctas"><a class="btn primary big" href="/studio">Open the Studio →</a><button class="btn big" data-act="${watch}">▶ Watch a site check</button></div>`;
   app.innerHTML = `
   <section class="hero">
     <div>
       <a class="newtag" href="/studio"><span>NEW</span>Studio: chat, 3D and walk-through →</a>
       <h1>Design it.<br>Live in it.<br><span class="mk">Prove it.</span></h1>
-      <p class="lead">An AI site engineer, built on Meta's models.</p>
-      <div class="ctas"><a class="btn primary big" href="/studio">Open the Studio →</a>
-        <button class="btn big" data-act="${watch}">▶ Watch a site check</button></div>
-      <form id="brief"><fieldset class="brief"><legend>Describe a building</legend><div class="row">
-        <textarea id="brief-text" rows="2" maxlength="800" aria-label="Describe a building to design" placeholder="A three-bedroom house with an open kitchen"></textarea>
-        <button class="btn primary small" type="submit" ${live ? "" : "disabled"}>Design it →</button></div></fieldset></form>
+      <p class="lead">Describe a building and AI draws it. See how it lives in the sun. Then check what was built against it, with proof.</p>
+      ${ask}
     </div>
     <div>
       ${sheet("Two-bedroom home · sun and routes", "SIM-01", `<div id="hero-plan"></div>`, "hero-sheet")}
-      <div class="hero-cap"><span><i style="background:#ffd54a"></i>sun, 10:00, 21 Dec, Delhi</span><span><i style="background:var(--accent)"></i>morning route</span>
+      <div class="hero-cap"><span><i style="background:#ffd54a"></i>sun at <b id="hero-hour">10:00</b> · 21 Dec · Delhi</span><span><i style="background:var(--accent)"></i>morning route</span>
         <span id="hero-score"></span></div>
     </div>
   </section>
@@ -235,17 +242,46 @@ async function renderHome() {
       ${sheet("Meta's models and their jobs", "G-002", `<div class="mlist">${MODELS.map(([m, t]) => `<div><span class="chip model">${m}</span><span>${t}</span></div>`).join("")}</div>
         <a class="go small" href="https://github.com/compiler-aditya/groundtruth#how-it-uses-metas-models-and-what-we-learned" target="_blank" rel="noopener">What we learned about each model →</a>`)}
     </div>
-  </section>`;
-  $("#brief").onsubmit = (e) => {
-    e.preventDefault();
-    const text = $("#brief-text").value.trim();
-    if (text.length < 3) return $("#brief-text").focus();
-    window.GTPlans.designFrom(text);
-  };
+  </section>
+  <section class="closer">${sheet("Your building, next", "A-101", `<div class="closer-in">
+      <div><h2>Start with <span class="hl">a sentence.</span></h2>
+        <p>Describe a building and watch it drawn, furnished and lit by the sun. Or watch the agent check a solar site, finding by finding.</p></div>
+      <div class="ctas"><a class="btn primary big" href="/studio">Open the Studio →</a><button class="btn big" data-act="${watch}">▶ Watch a site check</button>
+        <a class="go" href="#/upload">or try your own photos →</a></div>
+    </div>`, "closer-sheet")}</section>`;
+  const brief = $("#brief"), briefText = $("#brief-text");
+  if (brief) {
+    brief.onsubmit = (e) => {
+      e.preventDefault();
+      const text = briefText.value.trim();
+      if (text.length < 3) { briefText.focus(); briefText.classList.add("nudge"); return setTimeout(() => briefText.classList.remove("nudge"), 600); }
+      window.GTPlans.designFrom(text);
+    };
+    briefText.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); brief.requestSubmit(); } };
+    brief.onclick = (e) => { const b = e.target.closest("[data-brief]"); if (b) { briefText.value = b.dataset.brief; briefText.focus(); } };
+  }
   showcase();
-  window.GTPlans.heroPreview($("#hero-plan")).then((sim) => {
+  reveal();
+  const hhmm = (h) => `${String(Math.floor(h)).padStart(2, "0")}:${String(Math.round((h % 1) * 60)).padStart(2, "0")}`;
+  window.GTPlans.heroPreview($("#hero-plan"), { onHour: (h) => { const el = $("#hero-hour"); if (el && h != null) el.textContent = hhmm(h); } }).then((sim) => {
     const el = $("#hero-score");
     if (sim && el) el.innerHTML = `<b style="color:var(--ink)">${sim.overall}</b>/100 · daylight ${sim.scores.daylight} · movement ${sim.scores.movement} · space ${sim.scores.space}`;
+  });
+}
+
+// Sections fade up as they scroll into view. Nothing is hidden without IntersectionObserver or with reduced motion,
+// and what is already on screen shows at once.
+function reveal() {
+  if (!window.IntersectionObserver || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  const els = $$(".ruler > div, section.block > .eyebrow, section.block > h2.section, .sec-head, .show-sheet, .feats, .stage, .pkg-head, #package > .sheet, #rules .grid2 > *, .closer > .sheet");
+  const io = new IntersectionObserver((entries) => entries.forEach((e) => {
+    if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
+  }), { rootMargin: "0px 0px -8% 0px" });
+  els.forEach((el) => {
+    const sibs = [...el.parentElement.children].filter((x) => els.includes(x));
+    el.style.setProperty("--d", `${Math.min(sibs.indexOf(el), 4) * 70}ms`); // siblings in a row arrive one after another
+    el.classList.add("rv");
+    io.observe(el);
   });
 }
 
@@ -316,14 +352,15 @@ function homeTab(p) {
         ${k[kind].map((x) => `<div class="small key-item"><b>${esc(x.ref)}</b>: ${esc(x.what)}</div>`).join("")}</div>`).join("")}</div>
       <p class="small" style="margin:0"><b>Should pass:</b> ${k.pass.map((x) => `<span class="chip pass">${esc(x)}</span>`).join(" ")}</p>`;
   }
-  const groups = ["drone_still", "nameplate_photo", "drawing_sheet"].map((t) => [t, p.captures.filter((c) => c.type === t)]).filter(([, cs]) => cs.length);
+  // drone stills and drawings side by side, then the nameplates in a row; on a phone each group swipes sideways
+  const groups = ["drone_still", "drawing_sheet", "nameplate_photo"].map((t) => [t, p.captures.filter((c) => c.type === t)]).filter(([, cs]) => cs.length);
   const walk = p.captures.find((c) => c.type === "walkthrough_video");
-  return `<div class="groups">${groups.map(([t, cs]) => `<div class="group"><h3>${TYPE[t][0]}</h3><div class="captures">${cs.map((c) => `
+  return `<div class="groups">${groups.map(([t, cs]) => `<div class="group ${t}"><h3>${TYPE[t][0]} <span>${cs.length}</span></h3><div class="captures">${cs.map((c) => `
       <div class="capture" data-zoom data-full="${esc(c.thumb)}" data-caption="${esc(`${c.id} · ${c.label}${credit(c) ? ` · ${credit(c)}` : ""}`)}">
         <img src="${esc(c.thumb)}" alt="${esc(`${c.id}: ${c.label}`)}" loading="lazy">
         <div class="cap"><b>${esc(c.id)}</b>${esc(c.area || c.label)}<div class="faint tiny">${esc(credit(c))}</div></div>
       </div>`).join("")}</div></div>`).join("")}
-    ${walk ? `<div class="group"><h3>${TYPE.walkthrough_video[0]}</h3><div class="walk">
+    ${walk ? `<div class="group walkthrough_video"><h3>${TYPE.walkthrough_video[0]}</h3><div class="walk">
       <video src="${esc(p.walk_video)}" controls preload="none" poster="${esc(walk.thumb)}"></video>
       <div class="walk-note"><b>${esc(walk.id)}: ${esc(walk.label)}</b>
         <p><span class="big-n">3</span> of the spoken claims are false. Which ones, and where?</p>

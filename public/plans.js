@@ -2075,11 +2075,13 @@ window.GTPlans = (() => {
     location.href = "/studio#/new";
   }
 
-  // The home page's drawing: the two-bedroom template with the simulation's sun at 10:00 on 21 December in Delhi and
-  // a resident's morning route (a dot walks it). Without the server it shows the plan alone. Returns the simulation.
-  async function heroPreview(el) {
+  // The home page's drawing: the two-bedroom template with the simulation's sun crossing it on 21 December in Delhi
+  // (a step every quarter hour from 7:00, while the drawing is on screen; held at 10:00 for reduced motion) and a
+  // resident's morning route (a dot walks it). onHour(hour) hears the time shown. Without the server it shows the
+  // plan alone. Returns the simulation.
+  async function heroPreview(el, { onHour } = {}) {
     const plan = TEMPLATES.home.make(), W = 560, H = 440, view = fitView(plan, W, H, 28);
-    const svg = (overlay) => `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="A two-bedroom plan with patches of sunlight and a walking route">
+    const svg = (overlay) => `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="A two-bedroom plan with sunlight crossing it through the day and a walking route">
       <rect width="${W}" height="${H}" fill="${PAPER}"/>${drawPlan(plan, view, { overlay })}</svg>`;
     el.innerHTML = svg();
     try {
@@ -2087,14 +2089,19 @@ window.GTPlans = (() => {
         body: JSON.stringify({ plan: { rooms: plan.rooms, openings: plan.openings, items: plan.items }, settings: { latitude: 28.6, season: "winter", north: 0 } }) });
       if (!res.ok) return null;
       const sim = await res.json();
-      const sample = sim.sun.samples.find((x) => x.hour >= 10) || sim.sun.samples[0];
+      const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      const samples = sim.sun.samples, first = Math.max(0, samples.findIndex((x) => x.hour >= 10));
       const route = (sim.movement.people[0]?.legs || []).slice(0, 4).filter((l) => l.ok).flatMap((l) => l.path);
-      el.innerHTML = svg((X, Y, L) => {
-        const out = (sample?.patches || []).map((p) => `<polygon points="${p.poly.map(([x, y]) => `${X(x)},${Y(y)}`).join(" ")}" fill="#ffd54a" fill-opacity=".7" stroke="#e8a900"/>`);
+      let X, Y;
+      const patches = (s) => (s?.patches || []).map((p) => `<polygon points="${p.poly.map(([x, y]) => `${X(x)},${Y(y)}`).join(" ")}" fill="#ffd54a" fill-opacity=".7" stroke="#e8a900"/>`).join("");
+      el.innerHTML = svg((x, y, L) => {
+        [X, Y] = [x, y];
+        const out = [`<g class="hero-sun">${patches(samples[first])}</g>`];
         if (route.length > 1) {
-          const d = route.map(([x, y], i) => `${i ? "L" : "M"}${X(x)},${Y(y)}`).join(" ");
+          const d = route.map(([x, y], i) => `${i ? "L" : "M"}${X(x)},${Y(y)}`).join(" "), [x0, y0] = route[0];
           out.push(`<path d="${d}" fill="none" stroke="${ACCENT}" stroke-width="2.2" stroke-dasharray="6 5" stroke-linejoin="round"/>
-            <circle r="7" fill="${ACCENT}" stroke="#fff" stroke-width="2.5"><animateMotion dur="9s" repeatCount="indefinite" path="${d}"/></circle>`);
+            ${still ? `<circle r="7" cx="${X(x0)}" cy="${Y(y0)}" fill="${ACCENT}" stroke="#fff" stroke-width="2.5"/>`
+              : `<circle r="7" fill="${ACCENT}" stroke="#fff" stroke-width="2.5"><animateMotion dur="9s" repeatCount="indefinite" path="${d}"/></circle>`}`);
         }
         for (const r of plan.rooms) {
           const h = sim.sun.rooms[r.id]?.sun_hours;
@@ -2104,12 +2111,28 @@ window.GTPlans = (() => {
         }
         return out.join("");
       });
+      onHour?.(samples[first]?.hour);
+      if (!still && samples.length > 1) {
+        let i = first, rest = 0, seen = true;
+        const io = window.IntersectionObserver ? new IntersectionObserver(([e]) => { seen = e.isIntersecting; }) : null;
+        io?.observe(el);
+        const timer = setInterval(() => {
+          if (!document.body.contains(el)) { clearInterval(timer); io?.disconnect(); return; }
+          if (!seen || document.hidden) return;
+          if (i === samples.length - 1 && rest++ < 6) return; // a moment at dusk before the next day
+          rest = 0;
+          i = (i + 1) % samples.length;
+          const g = el.querySelector(".hero-sun");
+          if (g) g.innerHTML = patches(samples[i]);
+          onHour?.(samples[i].hour);
+        }, 240);
+      }
       return sim;
     } catch {
       return null;
     }
   }
 
-  return { boot, route, drawPlan, fitView, walls, TEMPLATES, designFrom, heroPreview,
+  return { boot, route, drawPlan, fitView, walls, TEMPLATES, designFrom, heroPreview, examples: EX_NEW,
     geometry: { walls, openingGeom, shared, footprint, bounds, FLOORS, defaultFloor } };
 })();

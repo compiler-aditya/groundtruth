@@ -254,6 +254,7 @@ body.app { background: var(--bg); }
 .app-mark:hover { background: var(--accent); color: #fff; text-decoration: none; }
 .app-tag { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .07em; color: #fff; background: var(--accent); border-radius: 4px; padding: 2px 7px; }
 .acct-slot { display: inline-flex; align-items: center; }
+.acct-slot .btn { white-space: nowrap; }
 .app-home { max-width: 1180px; margin: 0 auto; padding: 36px 28px 80px; }
 .app-head { display: flex; gap: 16px 24px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 8px; }
 .app-head h1 { font-size: 40px; margin: 0; }
