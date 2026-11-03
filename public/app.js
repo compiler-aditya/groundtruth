@@ -95,13 +95,14 @@ async function route() {
   // the studio is its own page now; older links to it land there
   const old = /^#\/(?:studio|plan)\/(.+)$/.exec(hash);
   if (old || hash === "#/studio" || hash === "#/plans") return location.replace(`/studio#/${old ? `d/${old[1]}` : ""}`);
-  const page = ["run", "findings", "upload", "how"].find((p) => hash.startsWith(`#/${p}`)) || "home";
-  $$(".top nav a[data-nav]").forEach((a) => a.classList.toggle("on", a.dataset.nav === page));
+  const page = ["run", "findings", "upload", "how", "demo"].find((p) => hash.startsWith(`#/${p}`)) || "home";
+  const nav = page === "run" || page === "findings" ? "demo" : page; // a run belongs with the site check
+  $$(".top nav a[data-nav]").forEach((a) => a.classList.toggle("on", a.dataset.nav === nav));
   if (page === "run") return renderRun();
   if (page === "findings") return renderFindings();
   if (page === "upload") return renderUpload();
   await renderHome();
-  if (page === "how") $("#how")?.scrollIntoView({ behavior: "smooth" });
+  if (page === "how" || page === "demo") $(page === "how" ? "#how" : "#package")?.scrollIntoView({ behavior: "smooth" });
   else window.scrollTo({ top: 0, behavior: "instant" });
 }
 
@@ -139,22 +140,8 @@ const ICON = {
 };
 const modules = (x0, y0, rows, cols, w, h, gap) => Array.from({ length: rows * cols }, (_, i) =>
   `<rect x="${x0 + (i % cols) * (w + 1)}" y="${y0 + Math.floor(i / cols) * (h + gap)}" width="${w}" height="${h}"/>`).join("");
+// Drawings used where a picture can't be: the Verify row without the demo package's photos.
 const ART = {
-  design: `<svg viewBox="0 0 320 180" class="art" aria-hidden="true">
-    <rect x="34" y="34" width="86" height="62" class="f1"/><rect x="120" y="34" width="66" height="62" class="f2"/><rect x="34" y="96" width="62" height="52" class="f3"/>
-    <rect x="96" y="96" width="90" height="52" class="draw"/>
-    <path class="wall" d="M34 34H186V96M34 34V148H96V96M34 96H186M120 34V96"/>
-    <circle cx="186" cy="148" r="4.5" class="dot"/><path class="cursor" d="M191 153l13 5-6 2-2 6z"/>
-    <rect x="210" y="30" width="90" height="34" rx="9" class="bub-u"/><path class="bl-u" d="M221 42h62M221 52h40"/>
-    <rect x="210" y="74" width="90" height="50" rx="9" class="bub-a"/><circle cx="224" cy="89" r="6" class="av"/><path class="bl-a" d="M236 86h52M236 95h36M221 110h64"/></svg>`,
-  simulate: `<svg viewBox="0 0 320 180" class="art" aria-hidden="true">
-    <circle cx="48" cy="42" r="13" class="sun"/><path class="ray" d="M48 20v-7M48 64v7M26 42h-7M70 42h7M32.5 26.5l-5-5M63.5 26.5l5-5M32.5 57.5l-5 5M63.5 57.5l5 5"/>
-    <rect x="92" y="40" width="196" height="112" class="paper"/>
-    <polygon class="patch" points="124,40 174,40 226,124 160,124"/>
-    <path class="wall" d="M124 40H92V152H288V40H174"/><path class="win" d="M124 37.5h50M124 42.5h50"/>
-    <path class="route" d="M108 138c44 0 50-50 104-50s50 34 58 48"/><circle cx="108" cy="138" r="4" class="dot"/><circle cx="270" cy="136" r="4" class="dot"/>
-    <circle cx="256" cy="72" r="17" class="ring-bg"/><circle cx="256" cy="72" r="17" class="ring" pathLength="100" stroke-dasharray="94 100" transform="rotate(-90 256 72)"/>
-    <text x="256" y="77" class="num">94</text></svg>`,
   verify: `<svg viewBox="0 0 320 180" class="art" aria-hidden="true">
     <rect x="22" y="26" width="176" height="128" rx="3" class="photo"/>
     <g class="mods">${modules(32, 38, 4, 13, 11, 22, 7)}</g>
@@ -164,84 +151,205 @@ const ART = {
     <circle cx="300" cy="34" r="11" class="ok"/><path class="tick" d="M294.5 34.5l4 4 7-8"/>
     <path class="docp" d="M222 118h44l12 12v24h-56z"/><path class="bl-a" d="M232 134h28M232 144h36"/></svg>`,
 };
-const STAGES = [
-  ["A", "Design", "Describe it, or upload a sketch.", ["muse-wonder", "muse-spark-1.3"], ART.design, `<a class="go" href="/studio">Open the Studio →</a>`],
-  ["B", "Simulate", "Sun, routes and room to move, scored.", ["muse-wonder", "geometry"], ART.simulate, `<a class="go" href="/studio">Simulate a plan →</a>`],
-  ["C", "Verify", "The built site, checked with proof.", ["sam-3.1", "muse-spark-1.3", "spark-open"], ART.verify, null],
+const MODELS = [["Muse Wonder", "Designs and edits plans; runs the site check"], ["Muse Spark 1.3", "Reads nameplates, drawings and sketches"],
+  ["SAM 3.1", "Counts what the drone sees"], ["Muse Spark Open", "Hears and watches the narrated walk"]];
+const PRINCIPLES = [
+  ["scale", "Code decides every verdict", "Counts and readings are compared with the design in code, never by the model."],
+  ["photo", "No finding without evidence", "A finding comes only from a check that failed, with its images attached."],
+  ["person", "Disagreements go to a person", "When two models disagree on a count, the claim goes to review instead of a verdict."],
+  ["doc", "Drafts stay on topic", "A draft must name its subject and its numbers, or it is written again."],
 ];
-const FEATURES = [["chat", "Chat to design"], ["sketch", "Sketch to plan"], ["cube", "3D with real sun"], ["walk", "Walk inside"], ["layers", "Layers and tools"], ["export", "GLB · PNG · SVG"]];
-const SHOTS = [["plan", "Plan", "The plan Muse Wonder drew, furnished"], ["3d", "3D", "The same plan in 3D"], ["walk", "Walk", "Standing in the living room"]];
-const RULES = [["scale", "Code decides every verdict"], ["photo", "No finding without evidence"], ["person", "Disagreements go to a person"], ["doc", "Drafts stay on topic"]];
-const MODELS = [["muse-wonder", "Plans, designs, edits"], ["sam-3.1", "Counts what drones see"], ["muse-spark-1.3", "Reads plates, drawings, sketches"], ["muse-spark-open", "Watches the narrated walk"]];
 // A drawing sheet: crop marks, the content, and a title block (drawing, sheet number, revision).
 const sheet = (drawing, number, body, cls = "") => `<div class="sheet ${cls}"><div class="sheet-body">${body}</div>
   <div class="sheet-title"><div><small>Drawing</small><b>${drawing}</b></div><div><small>Sheet</small><b>${esc(number)}</b></div><div><small>Rev</small><b>A</b></div></div></div>`;
-const label = (n, text) => `<div class="eyebrow"><span class="n">${n}</span>${esc(text)}</div>`;
+const head = (kicker, title, sub = "") => `<div class="h-head"><div class="kicker">${esc(kicker)}</div><h2>${title}</h2>${sub ? `<p>${sub}</p>` : ""}</div>`;
+const bullets = (items) => `<ul class="f-list">${items.map(([i, t]) => `<li>${ICON[i]}<span>${t}</span></li>`).join("")}</ul>`;
 
+/* ---------------- home: the live Studio window in the hero ---------------- */
+// [view, tab label, how long it shows (ms)]
+const REEL = [["plan", "Plan", 7000], ["3d", "3D", 7500], ["walk", "Walk", 9500]];
+// The walk, in the two-bedroom template's metres: from the path outside, in at the front door, along the hall and
+// into the living room, then a turn to look across at the kitchen and its table.
+const WALK = [[-2.2, 5.1], [0.6, 5.1], [3.7, 5.1], [4.5, 4.4], [4.5, 3.4], [3.2, 2.6], [2.4, 2.2]];
+const WALK_LOOK = [7.8, 2.6];
+
+function heroWindow(live) {
+  const examples = (window.GTPlans.examples || []).slice(0, 3);
+  const panel = live ? `<form class="hs-ask" id="brief">
+      <div class="hs-msg"><span class="hs-av">W</span><div><b>What shall we build?</b><span>Describe it, and I'll lay it out.</span></div></div>
+      <div class="hs-chips">${examples.map(([label, text]) => `<button type="button" data-brief="${esc(text)}" title="${esc(text)}">${esc(label)}</button>`).join("")}</div>
+      <div class="hs-in"><textarea id="brief-text" rows="3" maxlength="800" aria-label="Describe a building to design" placeholder="A three-bedroom house with an open kitchen…"></textarea>
+        <div class="hs-in-bar"><a class="btn small" href="/studio" title="Upload a hand sketch or an old plan in the Studio">📎 Sketch</a>
+          <span class="pe-spacer"></span><button class="btn primary small" type="submit">Design it ↑</button></div></div>
+    </form>`
+    : `<div class="hs-ask"><div class="hs-msg"><span class="hs-av">W</span><div><b>The AI designer</b><span>Describe a building and it lays it out, in the Studio.</span></div></div>
+      <a class="btn primary" href="/studio">Open the Studio →</a></div>`;
+  return `<div class="hs" id="hs">
+    <div class="hs-bar">
+      <span class="hs-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="hs-name">Two-bedroom home <span>· GroundTruth Studio</span></span>
+      <div class="hs-tabs" role="tablist" aria-label="Studio views">${REEL.map(([k, label], i) => `<button role="tab" data-hs="${i}" aria-selected="${!i}" class="${i ? "" : "on"}">
+        <span>${label}</span><i class="hs-prog"><b></b></i></button>`).join("")}</div>
+      <a class="hs-open" href="/studio">Open the Studio ↗</a>
+    </div>
+    <div class="hs-body">
+      <div class="hs-stage">
+        <div class="hs-layer hs-plan on" id="hs-plan"></div>
+        <div class="hs-layer hs-3d" id="hs-3d"></div>
+        <img class="hs-layer hs-pic" id="hs-pic" alt="">
+        <div class="hs-cap"><span id="hs-cap">Plan</span><span class="hs-clock">☀ <b id="hs-hour">10:00</b> · 21 Dec · Delhi</span></div>
+        <span class="hs-live"><i></i>Live</span>
+      </div>
+      <aside class="hs-side"><div class="hs-side-tabs"><span class="on">✨ AI designer</span><span>Properties</span></div>${panel}</aside>
+    </div>
+  </div>`;
+}
+
+// Plan, 3D and Walk take turns, all live: the plan draws itself room by room while the sun crosses it, the same plan
+// turns in 3D as the sun moves through the day, then a walk at eye height from the front door to the kitchen.
+// Picking a tab stays on it. Reduced motion: no turns, no drawing in, a still 3D view. Without WebGL, 3D and Walk show
+// pictures of the Studio. The 3D view loads while the plan plays, and rests while the window is off screen.
+function heroShow() {
+  const box = $("#hs");
+  if (!box) return;
+  const G = window.GTPlans, plan = G.heroPlan(), still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const planEl = $("#hs-plan", box), v3 = $("#hs-3d", box), pic = $("#hs-pic", box);
+  const area = plan.rooms.reduce((s, r) => s + r.w * r.h, 0);
+  const CAP = { plan: `Plan · ${plan.rooms.length} rooms · ${area.toFixed(0)} m²`, "3d": "3D · walls, glass, furniture and the sun's shadows", walk: "Walk · in through the front door" };
+  const st = { i: 0, timer: 0, held: false, three: null, failed: false, loading: null, seen: true, t0: 0, planHour: 10 };
+  const hhmm = (h) => `${String(Math.floor(h)).padStart(2, "0")}:${String(Math.round((h % 1) * 60)).padStart(2, "0")}`;
+  const clock = (h) => { const el = $("#hs-hour", box); if (el) el.textContent = hhmm(h); };
+  const kind = () => REEL[st.i][0];
+
+  const r = planEl.getBoundingClientRect(), tall = r.width ? r.height / r.width : 0.625; // the stage is taller on a phone
+  G.heroPreview(planEl, { size: [960, Math.round(960 * tall)], pad: 44, simFirst: true, grid: true, onHour: (h) => { st.planHour = h; if (kind() === "plan") clock(h); } }).then(() => {
+    $$(".room", planEl).forEach((r, i) => r.style.setProperty("--i", i));
+    $$("svg > line", planEl).forEach((l) => l.setAttribute("pathLength", "1"));
+    if (kind() === "plan") drawIn();
+  });
+  const drawIn = () => { if (still) return; planEl.classList.remove("draw"); void planEl.offsetWidth; planEl.classList.add("draw"); };
+
+  function ensure3d() {
+    st.loading = st.loading || import("/studio3d.js").then((mod) => {
+      st.sun = mod.sunPosition;
+      st.three = mod.create(v3, G.geometry, { showreel: true });
+      st.three.build(plan);
+      if (still) st.three.spin(false);
+      st.three.pause();
+    }).catch(() => { st.failed = true; });
+    return st.loading;
+  }
+  function sun(hour) {
+    if (!st.three || !st.sun) return;
+    const p = st.sun(28.6, 355, hour);
+    st.three.setSun(p.azimuth, p.elevation, 0);
+    clock(hour);
+  }
+  // the 3D sun moves from 08:00 to 16:00 while 3D shows; the walk is at a quarter to eleven
+  function tick() {
+    if (!document.body.contains(box)) return;
+    if (st.seen && kind() === "3d") sun(still ? 10 : 8 + 8 * Math.min(1, (performance.now() - st.t0) / REEL[1][2]));
+    requestAnimationFrame(tick);
+  }
+
+  async function show(i, { held = st.held } = {}) {
+    st.i = i;
+    st.held = held;
+    const k = kind();
+    $$("[data-hs]", box).forEach((b, j) => { b.classList.toggle("on", j === i); b.setAttribute("aria-selected", j === i); b.classList.remove("going"); });
+    const tab = $(`[data-hs="${i}"]`, box);
+    if (!held && !still) { tab.style.setProperty("--dur", `${REEL[i][2]}ms`); void tab.offsetWidth; tab.classList.add("going"); }
+    box.classList.toggle("held", held || still);
+    $("#hs-cap", box).textContent = CAP[k];
+    planEl.classList.toggle("on", k === "plan");
+    clearTimeout(st.timer);
+    if (!held && !still) st.timer = setTimeout(() => document.body.contains(box) && show((i + 1) % REEL.length), REEL[i][2]);
+    if (k === "plan") { st.three?.pause(); v3.classList.remove("on"); pic.classList.remove("on"); clock(st.planHour); drawIn(); return; }
+    await ensure3d();
+    if (kind() !== k) return; // moved on while it loaded
+    if (st.failed) { pic.src = `/showcase/${k}.webp`; pic.alt = k === "3d" ? "The plan in 3D" : "Standing in the living room"; pic.classList.add("on"); return; }
+    st.t0 = performance.now();
+    st.three.setMode(k === "walk" ? "walk" : "orbit", plan);
+    if (k === "walk") { if (!still) st.three.tour(WALK, { lookAt: WALK_LOOK }); sun(10.75); } else sun(still ? 10 : 8);
+    if (st.seen) st.three.resume();
+    v3.classList.add("on");
+  }
+
+  box.addEventListener("click", (e) => { const b = e.target.closest("[data-hs]"); if (b) show(Number(b.dataset.hs), { held: true }); });
+  if (window.IntersectionObserver) new IntersectionObserver(([e]) => {
+    st.seen = e.isIntersecting;
+    if (!st.three || kind() === "plan") return;
+    if (st.seen) { st.three.resume(); } else st.three.pause();
+  }).observe(box);
+  show(0);
+  setTimeout(() => document.body.contains(box) && ensure3d(), 1200); // ready by the time 3D comes round
+  requestAnimationFrame(tick);
+}
+
+/* ---------------- home ---------------- */
 async function renderHome() {
   if (!S.pkg) app.innerHTML = `<p class="muted" style="padding:80px 0">Loading…</p>`;
   await load();
   const p = S.pkg, live = liveReady(), watch = live ? "live" : "replay";
-  const examples = (window.GTPlans.examples || []).slice(0, 3);
-  // With the AI designer on, the main action is describing a building; without it, opening the Studio.
-  const ask = live ? `<form class="app-ask hero-ask" id="brief">
-      <div class="app-ask-box"><textarea id="brief-text" rows="2" maxlength="800" aria-label="Describe a building to design"
-        placeholder="Describe a building: a three-bedroom house with an open kitchen…"></textarea>
-        <div class="app-ask-bar"><a class="btn small" href="/studio" title="Upload a hand sketch or an old plan in the Studio">📎 Have a sketch?</a>
-          <span class="pe-spacer"></span><button class="btn primary" type="submit">✨ Design it</button></div></div>
-      <div class="app-ask-ex"><span>Try</span>${examples.map(([label, text]) => `<button type="button" data-brief="${esc(text)}" title="${esc(text)}">${esc(label)}</button>`).join("")}</div>
-    </form>
-    <div class="ctas hero-alt"><button class="btn big" data-act="${watch}">▶ Watch a site check</button><a class="go" href="/studio">or open the Studio →</a></div>`
-    : `<div class="ctas"><a class="btn primary big" href="/studio">Open the Studio →</a><button class="btn big" data-act="${watch}">▶ Watch a site check</button></div>`;
+  const thumb = (id) => p?.captures.find((c) => c.id === id)?.thumb;
+  const collage = p && thumb("DRN-C03") && thumb("NP-03") ? `<div class="collage">
+      <figure class="c1"><img src="${esc(thumb("DRN-C03"))}" alt="Drone still of block C" loading="lazy"><figcaption><b>SAM 3.1</b> counts the modules</figcaption></figure>
+      <figure class="c2"><img src="${esc(thumb("NP-03"))}" alt="An equipment nameplate" loading="lazy"><figcaption><b>Spark 1.3</b> reads the plate</figcaption></figure>
+      <figure class="c3"><img src="${esc(thumb("WLK-01") || thumb("DRN-A01"))}" alt="A frame of the narrated walk" loading="lazy"><figcaption><b>Spark Open</b> hears the walk</figcaption></figure>
+      <div class="c-docs"><span class="chip nonconformance">NCR</span><span class="chip design_query">RFI</span><span class="chip reporting_discrepancy">OBS</span><span>drafted, with evidence</span></div>
+    </div>` : `<div class="art-box">${ART.verify}</div>`;
   app.innerHTML = `
-  <section class="hero">
-    <div>
-      <a class="newtag" href="/studio"><span>NEW</span>Studio: chat, 3D and walk-through →</a>
-      <h1>Design it.<br>Live in it.<br><span class="mk">Prove it.</span></h1>
-      <p class="lead">Describe a building and AI draws it. See how it lives in the sun. Then check what was built against it, with proof.</p>
-      ${ask}
+  <section class="h-hero">
+    <a class="pill" href="/studio"><span>New</span>Studio: chat, 3D and walk-through →</a>
+    <h1>Design it. Live in it.<br><span class="mk">Prove it.</span></h1>
+    <p class="lead">Describe a building and AI draws it. See how it lives in the sun. Then check what was built against it, with proof.</p>
+    <div class="ctas h-ctas"><a class="btn primary big" href="/studio">Open the Studio →</a><button class="btn big" data-act="${watch}">▶ Watch a site check</button></div>
+    ${heroWindow(live)}
+  </section>
+  <section class="h-models" aria-label="Meta's models">
+    <p>Built on Meta's models</p>
+    <div>${MODELS.map(([m, t]) => `<div><b>${esc(m)}</b><span>${esc(t)}</span></div>`).join("")}</div>
+  </section>
+  <section class="h-sec" id="how">
+    ${head("How it works", `One plan, from a sentence <span class="hl">to the handover.</span>`, "Design it with AI, see how it lives, then check the built site against it. The same plan all the way.")}
+    <div class="frow">
+      <div class="f-copy"><div class="kicker">Design</div><h3>Say it. See it drawn.</h3>
+        <p>Describe a building, or upload a hand sketch. Muse Wonder lays it out with the Studio's own tools, and the code checks every step: no overlaps, an entrance, every room reachable.</p>
+        ${bullets([["chat", "Chat to design, and to change it"], ["sketch", "Sketches and old plans read by Spark 1.3"], ["walk", "3D with the real sun, and a walk inside"], ["export", "Drawing sheets, GLB models and design files"]])}
+        <a class="go" href="/studio">Open the Studio →</a></div>
+      <div class="f-art">${sheet("One-bedroom home with a study · designed in chat", "ST-01", `<div class="f-shot"><img src="/showcase/plan.webp" alt="A furnished plan in the Studio, designed in chat" loading="lazy">
+        <div class="show-chat"><div class="u">Add a study next to the bedroom, and furnish it</div>
+          <div class="a"><span class="av">W</span><span>Study added · 9 m² · door, window, desk</span><span class="ok">✓</span></div></div></div>`)}</div>
     </div>
-    <div>
-      ${sheet("Two-bedroom home · sun and routes", "SIM-01", `<div id="hero-plan"></div>`, "hero-sheet")}
-      <div class="hero-cap"><span><i style="background:#ffd54a"></i>sun at <b id="hero-hour">10:00</b> · 21 Dec · Delhi</span><span><i style="background:var(--accent)"></i>morning route</span>
-        <span id="hero-score"></span></div>
+    <div class="frow flip">
+      <div class="f-copy"><div class="kicker">Simulate</div><h3>Live in it before it's built.</h3>
+        <p>Sunlight crosses every window on the shortest day. Residents walk their day through the doors. Furniture, turning circles and narrow doors are checked. Each is scored from the geometry in about 50 ms.</p>
+        ${bullets([["clock", "Hours of direct sun in every room"], ["walk", "Routes walked, and trips that are blocked"], ["person", "Room for a wheelchair to turn"], ["chat", "Improve with AI: only changes that score higher are kept"]])}
+        <a class="go" href="/studio">Simulate a plan →</a></div>
+      <div class="f-art">${sheet("Two-bedroom home · sun and routes", "SIM-01", `<div id="sim-plan" class="f-sim"></div>`)}
+        <div class="hero-cap"><span><i style="background:#ffd54a"></i>sun at <b id="sim-hour">10:00</b> · 21 Dec · Delhi</span><span><i style="background:var(--accent)"></i>morning route</span><span id="sim-score"></span></div></div>
+    </div>
+    <div class="frow">
+      <div class="f-copy"><div class="kicker">Verify</div><h3>Prove what was built.</h3>
+        <p>Give it the design package and the captures a site already makes. The agent works out which photo proves which item, measures it, and drafts the paperwork for anything that fails.</p>
+        ${bullets([["drone", "Modules and tables counted on drone stills"], ["plate", "Every nameplate read and matched to the schedule"], ["video", "Claims in a narrated walk checked against what is seen"], ["doc", "Non-conformance reports, RFIs and observations, each tied to its evidence"]])}
+        <button class="go" data-act="${watch}">Watch a site check →</button></div>
+      <div class="f-art">${collage}</div>
     </div>
   </section>
-  <div class="ruler">
-    <div><b>9/9</b><span>planted problems found</span></div>
-    <div><b>0</b><span>false alarms</span></div>
-    <div><b>~1 min</b><span>per site check</span></div>
-    <div><b class="hl">4</b><span>Meta models</span></div>
-  </div>
-  <section class="block" id="studio">
-    <div class="sec-head"><div>${label("01", "Studio")}<h2 class="section">Say it. See it. <span class="hl">Walk through it.</span></h2></div>
-      <a class="btn primary" href="/studio">Open the Studio →</a></div>
-    ${sheet("One-bedroom home with a study · designed in chat", "ST-01", `<div class="show" id="show">
-      <div class="show-tabs" role="tablist">${SHOTS.map(([k, t], i) => `<button role="tab" data-show="${k}" class="${i ? "" : "on"}">${t}</button>`).join("")}</div>
-      ${SHOTS.map(([k, , alt], i) => `<img src="/showcase/${k}.webp" alt="${esc(alt)}" data-shot="${k}" class="${i ? "" : "on"}" ${i ? `loading="lazy"` : ""}>`).join("")}
-</div>
-      <div class="show-chat"><div class="u">Add a study next to the bedroom, and furnish it</div>
-        <div class="a"><span class="av">W</span><span>Study added · 9 m² · door, window, desk</span><span class="ok">✓</span></div></div>`, "show-sheet")}
-    <div class="feats">${FEATURES.map(([i, t]) => `<div>${ICON[i]}<span>${t}</span></div>`).join("")}</div>
-  </section>
-  <section class="block" id="how">
-    ${label("02", "How it works")}
-    <h2 class="section">One plan, <span class="hl">sketch to handover.</span></h2>
-    <div class="stages">${STAGES.map(([n, title, line, models, art, go], i) => `<div class="stage">
-      <div class="art-box">${art}</div>
-      <div class="stage-t"><span class="bubble ${i ? "" : "on"}">${n}</span><h3>${title}</h3></div>
-      <p>${line}</p><div class="models">${models.map((m) => `<span class="chip model">${m}</span>`).join("")}</div>
-      ${go || `<button class="go" data-act="${watch}">Watch it run →</button>`}</div>`).join("")}</div>
+  <section class="h-proof">
+    <p>Measured on the demo package</p>
+    <div class="ruler">
+      <div><b>9/9</b><span>planted problems found</span></div>
+      <div><b>0</b><span>false alarms</span></div>
+      <div><b>~1 min</b><span>per site check</span></div>
+      <div><b class="hl">4</b><span>Meta models</span></div>
+    </div>
   </section>
   ${p ? packageSection(p) : ""}
-  <section class="block" id="rules">
-    ${label("04", "Built to be checked")}
-    <h2 class="section">The model proposes. <span class="hl">Code decides.</span></h2>
-    <div class="grid2" style="margin-top:36px">
-      ${sheet("Rules the agent works under", "G-001", `<div class="tiles">${RULES.map(([i, t]) => `<div>${ICON[i]}<b>${t}</b></div>`).join("")}</div>`)}
-      ${sheet("Meta's models and their jobs", "G-002", `<div class="mlist">${MODELS.map(([m, t]) => `<div><span class="chip model">${m}</span><span>${t}</span></div>`).join("")}</div>
-        <a class="go small" href="https://github.com/compiler-aditya/groundtruth#how-it-uses-metas-models-and-what-we-learned" target="_blank" rel="noopener">What we learned about each model →</a>`)}
-    </div>
+  <section class="h-sec" id="rules">
+    ${head("Built to be checked", `The model proposes. <span class="hl">Code decides.</span>`, `<a href="https://github.com/compiler-aditya/groundtruth#built-to-be-checked" target="_blank" rel="noopener">How each rule is enforced →</a>`)}
+    <div class="principles">${PRINCIPLES.map(([i, t, d]) => `<div>${ICON[i]}<b>${t}</b><span>${d}</span></div>`).join("")}</div>
   </section>
   <section class="closer">${sheet("Your building, next", "A-101", `<div class="closer-in">
       <div><h2>Start with <span class="hl">a sentence.</span></h2>
@@ -260,11 +368,11 @@ async function renderHome() {
     briefText.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); brief.requestSubmit(); } };
     brief.onclick = (e) => { const b = e.target.closest("[data-brief]"); if (b) { briefText.value = b.dataset.brief; briefText.focus(); } };
   }
-  showcase();
+  heroShow();
   reveal();
   const hhmm = (h) => `${String(Math.floor(h)).padStart(2, "0")}:${String(Math.round((h % 1) * 60)).padStart(2, "0")}`;
-  window.GTPlans.heroPreview($("#hero-plan"), { onHour: (h) => { const el = $("#hero-hour"); if (el && h != null) el.textContent = hhmm(h); } }).then((sim) => {
-    const el = $("#hero-score");
+  window.GTPlans.heroPreview($("#sim-plan"), { onHour: (h) => { const el = $("#sim-hour"); if (el && h != null) el.textContent = hhmm(h); } }).then((sim) => {
+    const el = $("#sim-score");
     if (sim && el) el.innerHTML = `<b style="color:var(--ink)">${sim.overall}</b>/100 · daylight ${sim.scores.daylight} · movement ${sim.scores.movement} · space ${sim.scores.space}`;
   });
 }
@@ -273,29 +381,16 @@ async function renderHome() {
 // and what is already on screen shows at once.
 function reveal() {
   if (!window.IntersectionObserver || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-  const els = $$(".ruler > div, section.block > .eyebrow, section.block > h2.section, .sec-head, .show-sheet, .feats, .stage, .pkg-head, #package > .sheet, #rules .grid2 > *, .closer > .sheet");
+  const els = $$(".h-models, .h-head, .frow > *, .h-proof, .pkg-head, #package > .sheet, .principles > div, .closer > .sheet");
   const io = new IntersectionObserver((entries) => entries.forEach((e) => {
     if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
   }), { rootMargin: "0px 0px -8% 0px" });
   els.forEach((el) => {
     const sibs = [...el.parentElement.children].filter((x) => els.includes(x));
-    el.style.setProperty("--d", `${Math.min(sibs.indexOf(el), 4) * 70}ms`); // siblings in a row arrive one after another
+    el.style.setProperty("--d", `${Math.min(sibs.indexOf(el), 4) * 80}ms`); // siblings in a row arrive one after another
     el.classList.add("rv");
     io.observe(el);
   });
-}
-
-// Plan, 3D and Walk take turns until someone picks one.
-function showcase() {
-  const box = $("#show");
-  if (!box) return;
-  const show = (k) => {
-    $$("[data-show]", box).forEach((b) => b.classList.toggle("on", b.dataset.show === k));
-    $$("[data-shot]", box).forEach((im) => im.classList.toggle("on", im.dataset.shot === k));
-  };
-  let i = 0;
-  const timer = setInterval(() => (document.body.contains(box) ? show(SHOTS[++i % SHOTS.length][0]) : clearInterval(timer)), 3800);
-  box.onclick = (e) => { const b = e.target.closest("[data-show]"); if (b) { clearInterval(timer); show(b.dataset.show); } };
 }
 
 function packageSection(p) {
@@ -304,7 +399,7 @@ function packageSection(p) {
   const tabs = [["captures", `What the site captured (${p.captures.length})`], ["design", "The design"], ...(p.planted ? [["key", "Answer key"]] : [])];
   return `<section class="block" id="package">
     <div class="pkg-head">
-      <div>${label("03", "Live demo · site check")}
+      <div><div class="kicker">Live demo</div>
         <h2 class="section">${problems || "Some"} problems are hidden on this site. <span class="hl">Can the agent find them?</span></h2>
         <div class="counts">${[["drone", n("drone_still"), "drone stills"], ["plate", n("nameplate_photo"), "nameplates"], ["sheet", n("drawing_sheet"), "drawings"],
           ["video", n("walkthrough_video"), "narrated walk"]].map(([i, k, t]) => `<span>${ICON[i]}<b>${k}</b>${t}</span>`).join("")}</div></div>

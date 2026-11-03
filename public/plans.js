@@ -2079,16 +2079,24 @@ window.GTPlans = (() => {
   // (a step every quarter hour from 7:00, while the drawing is on screen; held at 10:00 for reduced motion) and a
   // resident's morning route (a dot walks it). onHour(hour) hears the time shown. Without the server it shows the
   // plan alone. Returns the simulation.
-  async function heroPreview(el, { onHour } = {}) {
-    const plan = TEMPLATES.home.make(), W = 560, H = 440, view = fitView(plan, W, H, 28);
+  // One plan and one simulation for every drawing on the home page (the simulation is keyed by room ids).
+  let heroPlan, heroSim;
+  function heroData() {
+    heroPlan = heroPlan || TEMPLATES.home.make();
+    heroSim = heroSim || fetch("/api/plan/simulate", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plan: { rooms: heroPlan.rooms, openings: heroPlan.openings, items: heroPlan.items }, settings: { latitude: 28.6, season: "winter", north: 0 } }) })
+      .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    return [heroPlan, heroSim];
+  }
+  // size: the drawing's [width, height]; simFirst: draw once, with the sun, so that nothing redraws mid-animation.
+  async function heroPreview(el, { onHour, size = [560, 440], pad = 28, simFirst = false, grid = false } = {}) {
+    const [plan, simReady] = heroData(), [W, H] = size, view = fitView(plan, W, H, pad);
     const svg = (overlay) => `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="A two-bedroom plan with sunlight crossing it through the day and a walking route">
-      <rect width="${W}" height="${H}" fill="${PAPER}"/>${drawPlan(plan, view, { overlay })}</svg>`;
-    el.innerHTML = svg();
+      <rect width="${W}" height="${H}" fill="${PAPER}"/>${drawPlan(plan, view, { overlay, grid, width: W, height: H })}</svg>`;
+    if (!simFirst) el.innerHTML = svg();
     try {
-      const res = await fetch("/api/plan/simulate", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: { rooms: plan.rooms, openings: plan.openings, items: plan.items }, settings: { latitude: 28.6, season: "winter", north: 0 } }) });
-      if (!res.ok) return null;
-      const sim = await res.json();
+      const sim = await simReady;
+      if (!sim) { if (simFirst) el.innerHTML = svg(); return null; }
       const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
       const samples = sim.sun.samples, first = Math.max(0, samples.findIndex((x) => x.hour >= 10));
       const route = (sim.movement.people[0]?.legs || []).slice(0, 4).filter((l) => l.ok).flatMap((l) => l.path);
@@ -2109,7 +2117,7 @@ window.GTPlans = (() => {
           out.push(`<rect x="${X(r.x) + 6}" y="${Y(r.y) + 6}" width="54" height="18" rx="9" fill="${h >= 3 ? "#f2b600" : h > 0 ? "#f7d774" : "#d6d3cc"}"/>
             <text x="${X(r.x) + 33}" y="${Y(r.y) + 19}" text-anchor="middle" font-size="11" font-weight="700" fill="#3b2f00">☀ ${+h.toFixed(2)} h</text>`);
         }
-        return out.join("");
+        return `<g class="hero-ov">${out.join("")}</g>`;
       });
       onHour?.(samples[first]?.hour);
       if (!still && samples.length > 1) {
@@ -2133,6 +2141,6 @@ window.GTPlans = (() => {
     }
   }
 
-  return { boot, route, drawPlan, fitView, walls, TEMPLATES, designFrom, heroPreview, examples: EX_NEW,
+  return { boot, route, drawPlan, fitView, walls, TEMPLATES, designFrom, heroPreview, heroPlan: () => heroData()[0], examples: EX_NEW,
     geometry: { walls, openingGeom, shared, footprint, bounds, FLOORS, defaultFloor } };
 })();

@@ -41,6 +41,7 @@ Needs ffmpeg (`brew install ffmpeg`). Results are cached by tool, arguments and 
 ```
 
 [app.py](app.py) streams each run as newline-delimited JSON ([gt/live.py](gt/live.py)). Agent notes, tool calls, results with their evidence images, findings and drafts all arrive in one response, so it runs on a serverless host. The UI is plain HTML, CSS and JS in [public/](public).
+- **The home page** opens on the Studio playing live: the plan draws itself while the sun crosses it, the same plan turns in 3D as the sun moves through the day, then a walk at eye height in through the front door. It is the real 3D view in a hands-off showreel mode ([public/studio3d.js](public/studio3d.js)), and falls back to pictures without WebGL and stays still for reduced motion.
 - **Live runs** of the demo use Muse Wonder in real time, with measurements served from a cache shipped with the deployment: about a minute and $0.40.
 - **The recorded run** plays back a real run with no API calls.
 - **Uploads** are photos and drawings, shrunk in the browser to fit Vercel's 4.5 MB request limit.
