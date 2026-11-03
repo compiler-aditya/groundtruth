@@ -264,7 +264,7 @@ export function create(container, G, opts = {}) {
       const want = Math.atan2(-(face.x - p.x), -(face.y - p.y)), d = Math.atan2(Math.sin(want - state.yaw), Math.cos(want - state.yaw));
       state.yaw += d * Math.min(1, dt * (done ? 1.3 : 2.4));
       if (done && Math.abs(d) < 0.02) t.lookAt = null; // facing it: from here, a slow pan
-    } else if (done) state.yaw -= 0.12 * dt;
+    } else if (done && (t.panned || 0) < 0.7) { state.yaw += 0.12 * dt; t.panned = (t.panned || 0) + 0.12 * dt; } // a little to the left
     camera.rotation.set(state.pitch, state.yaw, 0, "YXZ");
   }
 

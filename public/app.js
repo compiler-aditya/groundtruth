@@ -168,10 +168,10 @@ const bullets = (items) => `<ul class="f-list">${items.map(([i, t]) => `<li>${IC
 /* ---------------- home: the live Studio window in the hero ---------------- */
 // [view, tab label, how long it shows (ms)]
 const REEL = [["plan", "Plan", 7000], ["3d", "3D", 7500], ["walk", "Walk", 9500]];
-// The walk, in the two-bedroom template's metres: from the path outside, in at the front door, along the hall and
-// into the living room, then a turn to look across at the kitchen and its table.
-const WALK = [[-2.2, 5.1], [0.6, 5.1], [3.7, 5.1], [4.5, 4.4], [4.5, 3.4], [3.2, 2.6], [2.4, 2.2]];
-const WALK_LOOK = [7.8, 2.6];
+// The walk, in the two-bedroom template's metres: from the living room's corner by the window, across the room and
+// through the wide opening, then a turn to the kitchen table. (The hall is narrow, and its open doors fill the view.)
+const WALK = [[0.9, 1.0], [3.4, 1.5], [6.0, 2.5]];
+const WALK_LOOK = [8.0, 2.9];
 
 function heroWindow(live) {
   const examples = (window.GTPlans.examples || []).slice(0, 3);
@@ -215,7 +215,7 @@ function heroShow() {
   const G = window.GTPlans, plan = G.heroPlan(), still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   const planEl = $("#hs-plan", box), v3 = $("#hs-3d", box), pic = $("#hs-pic", box);
   const area = plan.rooms.reduce((s, r) => s + r.w * r.h, 0);
-  const CAP = { plan: `Plan · ${plan.rooms.length} rooms · ${area.toFixed(0)} m²`, "3d": "3D · walls, glass, furniture and the sun's shadows", walk: "Walk · in through the front door" };
+  const CAP = { plan: `Plan · ${plan.rooms.length} rooms · ${area.toFixed(0)} m²`, "3d": "3D · walls, glass, furniture and the sun's shadows", walk: "Walk · through the living room to the kitchen" };
   const st = { i: 0, timer: 0, held: false, three: null, failed: false, loading: null, seen: true, t0: 0, planHour: 10 };
   const hhmm = (h) => `${String(Math.floor(h)).padStart(2, "0")}:${String(Math.round((h % 1) * 60)).padStart(2, "0")}`;
   const clock = (h) => { const el = $("#hs-hour", box); if (el) el.textContent = hhmm(h); };
@@ -270,7 +270,7 @@ function heroShow() {
     if (st.failed) { pic.src = `/showcase/${k}.webp`; pic.alt = k === "3d" ? "The plan in 3D" : "Standing in the living room"; pic.classList.add("on"); return; }
     st.t0 = performance.now();
     st.three.setMode(k === "walk" ? "walk" : "orbit", plan);
-    if (k === "walk") { if (!still) st.three.tour(WALK, { lookAt: WALK_LOOK }); sun(10.75); } else sun(still ? 10 : 8);
+    if (k === "walk") { if (!still) st.three.tour(WALK, { lookAt: WALK_LOOK, speed: 1.05 }); sun(10.75); } else sun(still ? 10 : 8);
     if (st.seen) st.three.resume();
     v3.classList.add("on");
   }
