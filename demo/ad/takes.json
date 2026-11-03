@@ -1,22 +1,5 @@
 {
   "flow": "ThKmvrmzo5S2Ja0jCafR",
-  "vo": {
-    "A1": "sJyhCFzqI5AXBlOf4FPo",
-    "A2": "Kv8RZdZTsgqSEKn4qc4J",
-    "A3": "o5odCT8PyUrk7vvfTWPI",
-    "A4": "nfqy4OJbWtTkVlBRFgZS",
-    "A5": "ClJ3ePi6eR1IR2DaMsW3",
-    "A6": "GfTpgEfifRcX7aegdBJx",
-    "A7": "B1pLbKt0lDUxdD0GAJOL",
-    "A8": "pRuW2WSXGoBWiLgNBfzg",
-    "A9": "HzLND9U0CbFJM0PjYTZK"
-  },
-  "music": [
-    "Rpwb38HkDwpcXzpbx8yW",
-    "Uj17o2XZf2pmyokVJgwo",
-    "V5AHKEI0T5yCnz0Tp4MK",
-    "AjveSBedKVojR2hq4qf5"
-  ],
   "sfx": {
     "whoosh": [
       "QlZcB0sLOXXSya7ueWto",
@@ -79,7 +62,42 @@
       "GvBXVIItXmtEDgtrDJkt"
     ]
   },
-  "used": {
+  "vo_v1_fast": {
+    "A1": "sJyhCFzqI5AXBlOf4FPo",
+    "A2": "Kv8RZdZTsgqSEKn4qc4J",
+    "A3": "o5odCT8PyUrk7vvfTWPI",
+    "A4": "nfqy4OJbWtTkVlBRFgZS",
+    "A5": "ClJ3ePi6eR1IR2DaMsW3",
+    "A6": "GfTpgEfifRcX7aegdBJx",
+    "A7": "B1pLbKt0lDUxdD0GAJOL",
+    "A8": "pRuW2WSXGoBWiLgNBfzg",
+    "A9": "HzLND9U0CbFJM0PjYTZK"
+  },
+  "vo": {
+    "voice": "Jonathan - Warm Executive Narrator (eocOcfJL8piTXLNNpSCR), eleven_v4, [calm and confident]",
+    "A1": "MLR1UQS19Nv0PGBnbCNO",
+    "A2": "bXScjSDBMO355lpDJea1",
+    "A3": "tG9HSBD9Qe46syXI19nQ",
+    "A4": "6WqaNlFT8b5Z0MDHOacD",
+    "A5": "PoOyYBCcAmtK4YeNGyNO",
+    "A6": "SVSb824eKbuD5Vz1T68O",
+    "A7": "viqWqaxlQLwhjeWZBHDA",
+    "A8": "TopThdslaIucyrasej03",
+    "A9": "KmkmLp3zabmh7j1IHhhr"
+  },
+  "music_v1_fast": [
+    "Rpwb38HkDwpcXzpbx8yW",
+    "Uj17o2XZf2pmyokVJgwo",
+    "V5AHKEI0T5yCnz0Tp4MK",
+    "AjveSBedKVojR2hq4qf5"
+  ],
+  "music": [
+    "6J1AJFa8VfUc8gJo72F7",
+    "Hy1MvhJbAVPqSU1bC5vD",
+    "LSa0qb3cE3yFc7tsLSIz",
+    "8KrOOHdo66QUG9P1R9o6"
+  ],
+  "used_v1": {
     "music": 2,
     "music_cut": "78.9:80.775",
     "why_music": "take 2 has the clearest 15 s build into its drop; starting it 2.6 s in puts the drop on the logo at 12.4 s, and taking one bar (128 BPM) out of the breakdown puts the second drop on the 9/9 at 85.27 s",
@@ -96,5 +114,22 @@
       "counter": 3
     },
     "mix": "python3 mix.py AUDIO_DIR mix.wav --music 2 --cut 78.9:80.775 --pick whoosh=3,click=3,impact=3,riser=4,shutter=4,scan=1,success=2,alert=2,typing=3,counter=3"
+  },
+  "used": {
+    "music": 4,
+    "why_music": "of the four underscore takes, take 4 is the steadiest (2 dB of swing) and puts the least of its energy in the voice band (15%, against 22-38%), so it sits under the narrator; started with the picture, its own fade-out lands on the end card",
+    "sfx": {
+      "whoosh": 3,
+      "click": 3,
+      "impact": 3,
+      "riser": 4,
+      "shutter": 4,
+      "scan": 1,
+      "success": 2,
+      "alert": 2,
+      "typing": 3,
+      "counter": 3
+    },
+    "mix": "python3 mix.py SFX_DIR mix.wav --vo-dir VO_DIR --music-file bed_4.mp3 --offset 0 --pick whoosh=3,click=3,impact=3,riser=4,shutter=4,scan=1,success=2,alert=2,typing=3,counter=3"
   }
 }

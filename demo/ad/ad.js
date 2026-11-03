@@ -530,11 +530,31 @@ async function boot() {
     const mine = Object.keys(AD.frames).filter((n) => !before.has(n));
     if (mine.length) s.live = mine;
   }
+  // the time map to the current voiceover (warp.json, from build_warp.py): the scenes are written against the first
+  // read; seek(t) maps t back onto them, and the cues and actions move with their words
+  const warp = new URLSearchParams(location.search).has("nowarp") ? null : await fetch("warp.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  if (warp) {
+    const A = warp.anchors, map = (t, from, to) => {
+      if (t <= A[0][from]) return t - A[0][from] + A[0][to];
+      for (let i = 1; i < A.length; i++) if (t <= A[i][from]) {
+        const a = A[i - 1], b = A[i];
+        return a[to] + ((t - a[from]) / (b[from] - a[from])) * (b[to] - a[to]);
+      }
+      return t - A[A.length - 1][from] + A[A.length - 1][to];
+    };
+    AD.W = (t) => map(t, 0, 1);
+    AD.Winv = (t) => map(t, 1, 0);
+    AD.sfx.forEach((c) => (c.t = +AD.W(c.t).toFixed(3)));
+    AD.actions.forEach((c) => (c.t = +AD.W(c.t).toFixed(3)));
+    AD.vo = Object.entries(warp.vo).map(([name, t]) => ({ t, name }));
+    AD.duration = warp.duration;
+  }
   AD.sfx.sort((a, b) => a.t - b.t); AD.actions.sort((a, b) => a.t - b.t);
   window.seek(0);
   AD.ready = true;
 }
-window.seek = (t) => {
+window.seek = (tv) => {
+  const t = AD.Winv ? AD.Winv(tv) : tv; // the scenes' own time
   for (const s of AD.scenes) {
     const on = t >= s.a && t < s.b;
     // a scene holding a live frame stays laid out (hidden), so the product inside keeps its size

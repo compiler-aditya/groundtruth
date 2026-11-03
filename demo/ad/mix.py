@@ -1,6 +1,6 @@
 """Mixes the ad's soundtrack from the ElevenLabs files and the cue list the ad exports (cues.json).
 
-  python3 mix.py AUDIO_DIR OUT.wav [--music N] [--pick name=k,...] [--cut A:B]
+  python3 mix.py AUDIO_DIR OUT.wav [--music N | --music-file F] [--vo-dir D] [--drop-at T] [--pick name=k,...] [--cut A:B]
 
 AUDIO_DIR holds vo_A1.mp3 … vo_A9.mp3, music_1.mp3 … music_4.mp3 and sfx_<name>_<k>.mp3 (k = 1–4, the takes).
 - Voiceover: each clip at its cue.
@@ -21,9 +21,10 @@ import numpy as np
 SR = 48000
 DROP_AT = 12.4
 HERE = Path(__file__).parent
+MUSIC_DB = -27.0  # the music's typical 1 s level between lines; under the voice it ducks a further 6 dB
 VO_DB = -14.0  # the voiceover's loudest 10 ms, in dB; each sound effect is brought to it, then scaled by LEVEL
-LEVEL = {"whoosh": 0.45, "click": 0.3, "impact": 0.8, "riser": 0.45, "shutter": 0.35, "scan": 0.3,
-         "success": 0.35, "alert": 0.35, "typing": 0.3, "counter": 0.3}
+LEVEL = {"whoosh": 0.32, "click": 0.22, "impact": 0.5, "riser": 0.3, "shutter": 0.28, "scan": 0.22,
+         "success": 0.28, "alert": 0.26, "typing": 0.22, "counter": 0.22}
 
 
 def load(path):
@@ -99,8 +100,9 @@ def main():
     n = int(dur * SR)
     vo, fx, mus = np.zeros((n, 2), np.float32), np.zeros((n, 2), np.float32), np.zeros((n, 2), np.float32)
 
+    vo_dir = Path(args[args.index("--vo-dir") + 1]) if "--vo-dir" in args else audio
     for c in cues["vo"]:
-        place(vo, load(audio / f"vo_{c['name']}.mp3"), c["t"])
+        place(vo, load(vo_dir / f"vo_{c['name']}.mp3"), c["t"])
 
     cache = {}
     for c in cues["sfx"]:
@@ -110,19 +112,24 @@ def main():
             cache[name] = x * np.float32(10 ** ((VO_DB - peak_rms_db(x)) / 20))
         place(fx, cache[name], c["t"], c.get("gain", 1) * LEVEL.get(name, 0.4))
 
-    music = load(audio / f"music_{music_k}.mp3")
+    music = load(args[args.index("--music-file") + 1]) if "--music-file" in args else load(audio / f"music_{music_k}.mp3")
+    drop_at = float(args[args.index("--drop-at") + 1]) if "--drop-at" in args else DROP_AT
     drop, jump = find_drop(music)
-    print(f"music {music_k}: drop at {drop:.1f}s (+{jump:.1f} dB), placed at {DROP_AT}s")
+    print(f"music: its entrance at {drop:.1f}s (+{jump:.1f} dB), placed at {drop_at}s")
+    lv = 20 * np.log10(np.median(envelope(music[int(max(0, drop) * SR):], 1.0)) + 1e-9)
+    music *= np.float32(10 ** ((MUSIC_DB - lv) / 20))  # to the bed's level
     if "--cut" in args:
         a, b = map(float, args[args.index("--cut") + 1].split(":"))
         music = cut(music, a, b)
         print(f"music: took out {a}-{b}s; music after it plays {b - a:.2f}s earlier")
-    place(mus, music, DROP_AT - drop, 1.0)
+    start = float(args[args.index("--offset") + 1]) if "--offset" in args else drop_at - drop  # or where it starts in the ad
+    print(f"music starts at {start:.2f}s in the ad")
+    place(mus, music, start, 1.0)
     # duck under the voice: about -9 dB while it speaks
     speaking = np.clip(envelope(vo, 0.01) / 0.02, 0, 1)
-    duck = np.repeat(smooth_gain(1 - 0.6 * speaking, 0.03, 0.35, 100), int(0.01 * SR))
+    duck = np.repeat(smooth_gain(1 - 0.5 * speaking, 0.05, 0.5, 100), int(0.01 * SR))  # -6 dB under the voice
     duck = np.pad(duck, (0, n - len(duck)), mode="edge").astype(np.float32)
-    mus *= (0.6 * duck)[:, None]
+    mus *= duck[:, None]
     # fade out over the end card
     t = np.arange(n) / SR
     mus *= np.clip((dur - 0.3 - t) / 2.5, 0, 1)[:, None].astype(np.float32)

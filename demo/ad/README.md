@@ -1,6 +1,6 @@
 # The GroundTruth ad
 
-A 100-second, 1080p30 motion-designed film of GroundTruth for the hackathon submission. Every frame is a function of
+A 98-second, 1080p30 motion-designed film of GroundTruth for the hackathon submission. Every frame is a function of
 time: `ad.html` + `ad.js` lay out frame *t* when the renderer calls `window.seek(t)`, so the cut is exact and repeatable.
 
 The product shots are live, not recordings. The home page's Studio window (Plan, then 3D with the sun moving, then the
@@ -9,16 +9,28 @@ clock and CSS animations move only when the renderer steps them, one frame at a 
 rate even on a slow machine.
 
 Sound is all ElevenLabs:
-- the voiceover (nine clips);
-- an instrumental track, placed so its drop lands on the logo at 12.4 s and ducked under the voice;
+- the voiceover: nine lines read by a mature narrator (Jonathan, eleven_v4, calm and confident);
+- a restrained underscore: soft pads, a muted pulse and light percussion, with no lead melody, so it sits under the voice;
 - ten sound effects (whoosh, click, impact, riser, shutter, scan, success, alert, typing, counter) at about 120 cues.
 
-`takes.json` lists the generation of each, and the takes the cut uses. The music starts 2.6 s in, so its drop lands
-on the logo. One bar (128 BPM) comes out of its breakdown, so the second drop lands on the 9/9 at 85.3 s. The mix is
-normalized to -14 LUFS.
-The scene timings follow the voiceover's word timings, from an ElevenLabs transcription.
+The mix keeps the music about 13 dB under the voice while it speaks and 6 dB higher between lines, and normalizes the
+result to -14 LUFS. `takes.json` lists every generation and the takes the cut uses, with the reasons.
+
+The scenes are written against the first read's timing. `warp.json` maps that timing onto the current voiceover, and
+`build_warp.py` makes it from both reads' word timings (ElevenLabs transcription):
+- Each phrase start is paired with the same phrase in the new read, so every beat stays on its word.
+- The gaps between lines keep their length, so transitions keep their speed.
+
+`seek(t)` applies the map, and the cues and actions move with it. To re-voice the ad:
+1. Transcribe the new takes.
+2. Run `python3 build_warp.py WORDS_DIR warp.json`.
+3. Render and mix again.
+
+`ad.html?nowarp` shows the original timing.
 
 ## Scenes
+
+Times are in the scenes' own timing (the first read). In the cut, `warp.json` brings each beat up to 2 s earlier.
 
 | Time | Scene | Meta models on screen |
 |---|---|---|
@@ -38,19 +50,19 @@ The app must be running on port 8000 (`uvicorn app:app --port 8000`). Then:
 
 ```bash
 cd demo/ad
-node render.js 0 100.5 1 frames          # every frame; `node render.js 0 100.5 15 prev` for a 2 fps preview
-python3 mix.py AUDIO_DIR mix.wav --music 2 --cut 78.9:80.775 \
+node render.js 0 98.444 1 frames         # every frame; `node render.js 0 98.444 15 prev` for a 2 fps preview
+python3 mix.py SFX_DIR mix.wav --vo-dir VO_DIR --music-file bed_4.mp3 --offset 0 \
   --pick whoosh=3,click=3,impact=3,riser=4,shutter=4,scan=1,success=2,alert=2,typing=3,counter=3
-                                         # AUDIO_DIR: vo_A1..A9.mp3, music_1..4.mp3, sfx_<name>_1..4.mp3
+                                         # VO_DIR: vo_A1..A9.mp3; SFX_DIR: sfx_<name>_1..4.mp3
 ./encode.sh frames groundtruth-ad.mp4 mix.wav
 ```
 
 To render faster, render three stretches in parallel. Each one loads only the live frames it shows:
 
 ```bash
-FRAMES=vt-hero node render.js 0 33.65 1 frames &
-FRAMES=vt-hero2,vt-studio node render.js 33.65 47.3 1 frames &
-FRAMES= node render.js 47.3 100.5 1 frames &
+FRAMES=vt-hero node render.js 0 32.496 1 frames &
+FRAMES=vt-hero2,vt-studio node render.js 32.496 45.422 1 frames &
+FRAMES= node render.js 45.422 98.444 1 frames &
 wait
 ```
 
