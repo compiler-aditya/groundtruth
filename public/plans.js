@@ -440,7 +440,7 @@ window.GTPlans = (() => {
   const THEME_BTN = `<button class="theme-btn" data-pact="theme" aria-label="Switch between light and dark" title="Light or dark">
     <svg class="moon" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 12.5A6.5 6.5 0 017.5 4a6.5 6.5 0 108.5 8.5z"/></svg>
     <svg class="sun" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="10" cy="10" r="3.4"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M4.3 15.7l1.4-1.4M14.3 5.7l1.4-1.4"/></svg></button>`;
-  const appBar = () => `<header class="app-bar"><a class="app-brand" href="/" title="GroundTruth home"><span class="mark">✓</span><span>GroundTruth</span></a>
+  const appBar = () => `<header class="app-bar"><a class="app-brand" href="/" title="GroundTruth home"><img class="mark" src="/logo.svg" alt="" width="26" height="26"><span>GroundTruth</span></a>
     <span class="app-tag">Studio</span><span class="pe-spacer"></span>${THEME_BTN}<span class="acct-slot" id="acct"></span></header>`;
   // The blank template's picture: an empty sheet with a dashed room to draw.
   const BLANK_ART = `<svg viewBox="0 0 280 180" aria-hidden="true"><rect width="280" height="180" fill="${PAPER}"/>
@@ -581,7 +581,7 @@ window.GTPlans = (() => {
     app.innerHTML = `
     <div class="pe studio" id="plan-editor">
       <div class="pe-top">
-        <a class="app-mark" href="#/" title="All designs">✓</a>
+        <a class="app-mark" href="#/" title="All designs"><img src="/logo.svg" alt="All designs" width="28" height="28"></a>
         <details class="pe-menu left" id="pe-file"><summary class="btn small" title="Projects and files">☰ File</summary><div class="pe-menu-list">
           <button data-pact="file-new">New blank design</button><a href="#/">All designs and templates</a>
           <button data-pact="file-import">Open a plan file (.json)…</button><input type="file" id="studio-import" accept=".json,application/json" hidden>

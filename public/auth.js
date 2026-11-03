@@ -32,7 +32,7 @@ window.GTAuth = (() => {
     d.className = "auth-dlg";
     d.innerHTML = `<form class="auth-card" novalidate>
       <button type="button" class="auth-x" data-auth="close" aria-label="Close">×</button>
-      <div class="auth-mark">✓</div><h2 id="auth-title"></h2><p class="auth-note" id="auth-note"></p>
+      <img class="auth-mark" src="/logo.svg" alt="" width="40" height="40"><h2 id="auth-title"></h2><p class="auth-note" id="auth-note"></p>
       <label class="auth-f" data-only="signup"><span>Name</span><input name="name" autocomplete="name" maxlength="60" placeholder="Your name"></label>
       <label class="auth-f"><span>Email</span><input name="email" type="email" autocomplete="email" required placeholder="you@example.com"></label>
       <label class="auth-f"><span>Password</span><span class="auth-pw"><input name="password" type="password" required minlength="8" placeholder="At least 8 characters">

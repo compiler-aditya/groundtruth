@@ -13,12 +13,24 @@
   <script>try { if (localStorage.getItem("gt.theme") === "dark") document.documentElement.dataset.theme = "dark"; } catch (e) {}</script>
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/plans.css">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='white' stroke='%23ff4c00' stroke-width='3'/%3E%3Cpath d='M10 16.5l4 4 8-9' stroke='%23ff4c00' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#262626">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="GroundTruth">
+  <meta property="og:title" content="GroundTruth: design it, live in it, prove it">
+  <meta property="og:description" content="Design a building with Muse Wonder, simulate how it lives, then check the built site against it with Meta's models.">
+  <meta property="og:image" content="https://groundtruth-mu-gules.vercel.app/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://groundtruth-mu-gules.vercel.app/og.png">
 </head>
 <body>
   <header class="top">
     <div class="wrap">
-      <a class="brand" href="#/"><span class="mark">✓</span><span class="brand-name">GroundTruth</span></a>
+      <a class="brand" href="#/" aria-label="GroundTruth home"><img class="mark" src="/logo.svg" alt="" width="28" height="28"><span class="brand-name">GroundTruth</span></a>
       <nav>
         <a href="/studio" data-nav="studio" class="nav-studio">Studio <span>AI</span></a>
         <a href="#/demo" data-nav="demo">Site check</a>
@@ -39,7 +51,7 @@
   <footer class="foot">
     <div class="wrap">
       <div class="foot-grid">
-        <div class="foot-brand"><a class="brand" href="#/"><span class="mark">✓</span><span>GroundTruth</span></a>
+        <div class="foot-brand"><a class="brand" href="#/"><img class="mark" src="/logo.svg" alt="" width="28" height="28"><span>GroundTruth</span></a>
           <p>From floor plan to verified site. Built on Muse Wonder, Muse Spark 1.3, Spark Open and SAM 3.1, with every verdict computed in code.</p></div>
         <div><h4>Product</h4><a href="/studio">Studio</a><a href="#/demo">Site check</a><a href="#/upload">Try your own</a><a href="#/how">How it works</a></div>
         <div><h4>Project</h4><a href="https://github.com/compiler-aditya/groundtruth" target="_blank" rel="noopener">Source on GitHub</a>
