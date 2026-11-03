@@ -21,9 +21,12 @@ export function sunPosition(latitude, day, hour) {
   return { azimuth: ((az / rad) + 360) % 360, elevation: el / rad };
 }
 
-export function create(container, G) {
+// opts.showreel: a hands-off view for the home page. It takes no keys, wheel or drag (so the page still scrolls),
+// orbits by itself, and walks a set route (tour) instead of following the keys.
+export function create(container, G, opts = {}) {
+  const reel = !!opts.showreel;
   const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, reel ? 1.5 : 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -37,7 +40,7 @@ export function create(container, G) {
   const hemi = new THREE.HemisphereLight(0xffffff, 0xb9b2a5, 1.1);
   const sun = new THREE.DirectionalLight(0xfff0d8, 2.4);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(reel ? 1024 : 2048, reel ? 1024 : 2048);
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.02;
   const ambient = new THREE.AmbientLight(0xffffff, 0.15); // raised inside, where the ceilings block the sky
@@ -49,8 +52,9 @@ export function create(container, G) {
   orbit.enableDamping = true;
   orbit.maxPolarAngle = Math.PI * 0.495;
   orbit.minDistance = 2;
+  if (reel) Object.assign(orbit, { enabled: false, enableZoom: false, autoRotate: true, autoRotateSpeed: 1.6 });
   const look = new PointerLockControls(camera, document.body);
-  const state = { mode: "orbit", center: new THREE.Vector3(), size: 10, colliders: [], keys: new Set(), yaw: 0, pitch: 0, running: true, wall: 2.7, onMove: null };
+  const state = { mode: "orbit", center: new THREE.Vector3(), size: 10, colliders: [], keys: new Set(), yaw: 0, pitch: 0, running: true, wall: 2.7, onMove: null, tour: null };
   const clock = new THREE.Clock();
   const disposables = [];
   const mat = (color, extra = {}) => { const m = new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0, ...extra }); disposables.push(m); return m; };
@@ -173,7 +177,7 @@ export function create(container, G) {
   }
 
   function frame() {
-    const s = state.size, c = state.center;
+    const s = state.size * (reel ? 0.8 : 1), c = state.center; // the showreel sits a little closer
     camera.position.set(c.x + s * 0.45, s * 1.5, c.z + s * 0.9); // high enough to see into the rooms, like a doll's house
     orbit.target.copy(c);
     orbit.update();
@@ -201,7 +205,9 @@ export function create(container, G) {
 
   function setMode(mode, plan) {
     state.mode = mode;
-    orbit.enabled = mode === "orbit";
+    state.tour = null;
+    orbit.enabled = mode === "orbit" && !reel;
+    if (reel) { camera.fov = mode === "walk" ? 68 : 55; camera.updateProjectionMatrix(); }
     ceilings.visible = mode === "walk";
     ambient.intensity = mode === "walk" ? 1.15 : 0.15;
     if (mode === "walk") startWalk(plan);
@@ -233,9 +239,38 @@ export function create(container, G) {
     state.onMove?.(p.x, p.z, state.yaw);
   }
 
+  // Showreel walk: along a route of [x, z] points at eye height, turning smoothly towards a point a little ahead.
+  // At the end it turns to face lookAt ([x, z]), if given, then pans slowly.
+  function tour(points, { speed = 1.25, lookAt = null } = {}) {
+    const pts = points.map(([x, z]) => new THREE.Vector2(x, z)), seg = pts.slice(1).map((p, i) => p.distanceTo(pts[i]));
+    state.tour = { pts, seg, total: seg.reduce((a, b) => a + b, 0), s: 0, speed, lookAt: lookAt && new THREE.Vector2(...lookAt) };
+    camera.position.set(pts[0].x, EYE, pts[0].y);
+    state.yaw = Math.atan2(-(pts[1].x - pts[0].x), -(pts[1].y - pts[0].y));
+    state.pitch = -0.1;
+    camera.rotation.set(state.pitch, state.yaw, 0, "YXZ");
+  }
+  function along(t, s) {
+    let i = 0;
+    while (i < t.seg.length - 1 && s > t.seg[i]) { s -= t.seg[i]; i++; }
+    return t.pts[i].clone().lerp(t.pts[i + 1], Math.min(1, s / (t.seg[i] || 1)));
+  }
+  function tourStep(dt) {
+    const t = state.tour;
+    t.s = Math.min(t.total, t.s + t.speed * dt);
+    const p = along(t, t.s), ahead = along(t, Math.min(t.total, t.s + 1.4)), done = t.s >= t.total;
+    camera.position.set(p.x, EYE, p.y);
+    const face = done ? t.lookAt : ahead.distanceTo(p) > 0.05 ? ahead : null;
+    if (face) {
+      const want = Math.atan2(-(face.x - p.x), -(face.y - p.y)), d = Math.atan2(Math.sin(want - state.yaw), Math.cos(want - state.yaw));
+      state.yaw += d * Math.min(1, dt * (done ? 1.3 : 2.4));
+      if (done && Math.abs(d) < 0.02) t.lookAt = null; // facing it: from here, a slow pan
+    } else if (done && (t.panned || 0) < 0.7) { state.yaw += 0.12 * dt; t.panned = (t.panned || 0) + 0.12 * dt; } // a little to the left
+    camera.rotation.set(state.pitch, state.yaw, 0, "YXZ");
+  }
+
   // Drag to look around when the pointer isn't locked (touch screens, or before clicking in).
   let drag = null;
-  renderer.domElement.addEventListener("pointerdown", (e) => { if (state.mode === "walk" && !look.isLocked) drag = { x: e.clientX, y: e.clientY }; });
+  if (!reel) renderer.domElement.addEventListener("pointerdown", (e) => { if (state.mode === "walk" && !look.isLocked) drag = { x: e.clientX, y: e.clientY }; });
   window.addEventListener("pointerup", () => { drag = null; });
   window.addEventListener("pointermove", (e) => {
     if (!drag || state.mode !== "walk") return;
@@ -254,8 +289,7 @@ export function create(container, G) {
     }
   };
   const keydown = onKey(true), keyup = onKey(false);
-  window.addEventListener("keydown", keydown);
-  window.addEventListener("keyup", keyup);
+  if (!reel) { window.addEventListener("keydown", keydown); window.addEventListener("keyup", keyup); }
 
   function resize() {
     const w = container.clientWidth || 800, h = container.clientHeight || 600;
@@ -273,12 +307,14 @@ export function create(container, G) {
     if (!state.running) return;
     const dt = Math.min(clock.getDelta(), 0.1);
     if (state.mode === "orbit") orbit.update();
+    else if (state.tour) tourStep(dt);
     else step(dt);
     renderer.render(scene, camera);
   });
 
   return {
-    build, setSun, setMode,
+    build, setSun, setMode, tour,
+    spin: (on) => { orbit.autoRotate = !!on; },
     lockPointer: () => look.lock(),
     hold: (k, on) => (on ? state.keys.add(k) : state.keys.delete(k)),
     onMove: (fn) => { state.onMove = fn; },

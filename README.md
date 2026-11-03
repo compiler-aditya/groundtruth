@@ -41,6 +41,7 @@ Needs ffmpeg (`brew install ffmpeg`). Results are cached by tool, arguments and 
 ```
 
 [app.py](app.py) streams each run as newline-delimited JSON ([gt/live.py](gt/live.py)). Agent notes, tool calls, results with their evidence images, findings and drafts all arrive in one response, so it runs on a serverless host. The UI is plain HTML, CSS and JS in [public/](public).
+- **The home page** opens on the Studio playing live: the plan draws itself while the sun crosses it, the same plan turns in 3D as the sun moves through the day, then a walk at eye height in through the front door. It is the real 3D view in a hands-off showreel mode ([public/studio3d.js](public/studio3d.js)), and falls back to pictures without WebGL and stays still for reduced motion.
 - **Live runs** of the demo use Muse Wonder in real time, with measurements served from a cache shipped with the deployment: about a minute and $0.40.
 - **The recorded run** plays back a real run with no API calls.
 - **Uploads** are photos and drawings, shrunk in the browser to fit Vercel's 4.5 MB request limit.
@@ -50,7 +51,7 @@ Deploy: `scripts/build_web.py dist` assembles `dist/`: the app, the demo package
 
 ## Studio
 
-**Design a building by talking to it, then walk through it.** Click **Studio** in the navbar: it opens as its own app at `/studio` ([public/studio.html](public/studio.html)), with your designs first. The AI designer chat beside the canvas does the heavy lifting, and each change appears on the drawing as it is made:
+**Design a building by talking to it, then walk through it.** Click **Studio** in the navbar: it opens as its own app at `/studio` ([public/studio.html](public/studio.html)). It starts with a box to describe a building or upload a sketch, which goes straight to the AI designer, then your designs and the templates. The AI designer chat beside the canvas does the heavy lifting, and each change appears on the drawing as it is made:
 - **Ask.** Describe a building, or a change ("make the kitchen 1 m wider and add a study next to the bedroom"). Muse Wonder edits the plan with the editor's own tools. The conversation is kept, so follow-ups work, and every reply can be undone.
 - **Upload a raw draft:** a hand sketch, a photo of a drawing, an old plan or a PDF. Muse Spark 1.3 reads its rooms, written dimensions, doors and windows ([gt/sketch.py](gt/sketch.py)). The code turns them into metres, and Wonder lays them out as a clean, checked plan.
 - **3D** builds the model from the plan: walls, open doors, glass, floor finishes, furniture, and the sun for the site's city, date and hour.
@@ -60,6 +61,7 @@ Deploy: `scripts/build_web.py dist` assembles `dist/`: the app, the demo package
   - Editing: snap, undo and redo, copy and paste, arrow-key nudges, floor finishes and wall height.
   - Layers show, hide or lock rooms, labels, walls, openings, furniture, notes, dimensions and the grid.
   - Room areas, the total floor area and the door and window schedule are computed as you go.
+  - On a phone or tablet the tools run in a strip above the plan, and two fingers pinch to zoom and pan.
 - **Export:**
   - a drawing sheet (PNG or SVG) with a title block, sheet number and revision;
   - the 3D model as GLB, for Blender, SketchUp or an AR viewer;
