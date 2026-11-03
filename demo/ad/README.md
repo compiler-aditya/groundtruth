@@ -13,7 +13,9 @@ Sound is all ElevenLabs:
 - an instrumental track, placed so its drop lands on the logo at 12.4 s and ducked under the voice;
 - ten sound effects (whoosh, click, impact, riser, shutter, scan, success, alert, typing, counter) at about 120 cues.
 
-`takes.json` lists the generation of each.
+`takes.json` lists the generation of each, and the takes the cut uses. The music starts 2.6 s in, so its drop lands
+on the logo. One bar (128 BPM) comes out of its breakdown, so the second drop lands on the 9/9 at 85.3 s. The mix is
+normalized to -14 LUFS.
 The scene timings follow the voiceover's word timings, from an ElevenLabs transcription.
 
 ## Scenes
@@ -37,7 +39,9 @@ The app must be running on port 8000 (`uvicorn app:app --port 8000`). Then:
 ```bash
 cd demo/ad
 node render.js 0 100.5 1 frames          # every frame; `node render.js 0 100.5 15 prev` for a 2 fps preview
-python3 mix.py AUDIO_DIR mix.wav         # AUDIO_DIR: vo_A1..A9.mp3, music_1..4.mp3, sfx_<name>_1..4.mp3
+python3 mix.py AUDIO_DIR mix.wav --music 2 --cut 78.9:80.775 \
+  --pick whoosh=3,click=3,impact=3,riser=4,shutter=4,scan=1,success=2,alert=2,typing=3,counter=3
+                                         # AUDIO_DIR: vo_A1..A9.mp3, music_1..4.mp3, sfx_<name>_1..4.mp3
 ./encode.sh frames groundtruth-ad.mp4 mix.wav
 ```
 

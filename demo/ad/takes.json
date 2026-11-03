@@ -1,18 +1,100 @@
 {
   "flow": "ThKmvrmzo5S2Ja0jCafR",
-  "vo": {"A1": "sJyhCFzqI5AXBlOf4FPo", "A2": "Kv8RZdZTsgqSEKn4qc4J", "A3": "o5odCT8PyUrk7vvfTWPI", "A4": "nfqy4OJbWtTkVlBRFgZS", "A5": "ClJ3ePi6eR1IR2DaMsW3",
-         "A6": "GfTpgEfifRcX7aegdBJx", "A7": "B1pLbKt0lDUxdD0GAJOL", "A8": "pRuW2WSXGoBWiLgNBfzg", "A9": "HzLND9U0CbFJM0PjYTZK"},
-  "music": ["Rpwb38HkDwpcXzpbx8yW", "Uj17o2XZf2pmyokVJgwo", "V5AHKEI0T5yCnz0Tp4MK", "AjveSBedKVojR2hq4qf5"],
+  "vo": {
+    "A1": "sJyhCFzqI5AXBlOf4FPo",
+    "A2": "Kv8RZdZTsgqSEKn4qc4J",
+    "A3": "o5odCT8PyUrk7vvfTWPI",
+    "A4": "nfqy4OJbWtTkVlBRFgZS",
+    "A5": "ClJ3ePi6eR1IR2DaMsW3",
+    "A6": "GfTpgEfifRcX7aegdBJx",
+    "A7": "B1pLbKt0lDUxdD0GAJOL",
+    "A8": "pRuW2WSXGoBWiLgNBfzg",
+    "A9": "HzLND9U0CbFJM0PjYTZK"
+  },
+  "music": [
+    "Rpwb38HkDwpcXzpbx8yW",
+    "Uj17o2XZf2pmyokVJgwo",
+    "V5AHKEI0T5yCnz0Tp4MK",
+    "AjveSBedKVojR2hq4qf5"
+  ],
   "sfx": {
-    "whoosh": ["QlZcB0sLOXXSya7ueWto", "SMi3bx29l3r7hvvkn63n", "R47gbNU3VzT60fd32rHy", "KQxDU2aPnfaNuvtSRE66"],
-    "click": ["5e7WakrCD1wCych7g72L", "FdisKELAkyAAm6GyUgkb", "yfLHzs34SXt7lR1UzMEX", "WNzhCuzHYYPIb18KEzZ7"],
-    "impact": ["YaKEF1xGl4TrnYPPlSi6", "4L1NEiXe7qnj9F5uAoC1", "5MykzkU0E7ytaxgHfX94", "HSaiD2FQ0AgaCePjQ45a"],
-    "riser": ["mc9GKtJsbHTQKJR8Z8SD", "JFjDUbOkuvUyxOp2OclS", "K1yw7iUDgOtfRJj9sv1D", "n5mxlIrsZDajfdeyJEO2"],
-    "shutter": ["xNGNftTayRK3lA7EZY3R", "3LghXNwfzLW7v1PTmy3j", "YL8SG35ed0skayVbPbcg", "NuGylhdfDeBtsDvpP97P"],
-    "scan": ["vilhZXCT7dAfcH5h3rvV", "8srizafXgbE2UqdtuOyL", "1DMypKgloeS838jwIjCx", "nIxBhllNZLQ9rwmvEZxg"],
-    "success": ["rIQLqVIdP25Qc0bUbvue", "cDLjR7KpoEwj1t63RrQs", "1UAL8XsnnFGqT7ZSLvVn", "voB2pfRlpyaTsP26TxxT"],
-    "alert": ["zXy3OgrQB5N457E3zu6x", "x4sIpuoA1GwWJosHbqDB", "vmt1BC7Pe9vX3TDr9hXb", "7CyTE5oF5BKWGv44RXHk"],
-    "typing": ["gH09lFUh6GMVWl9f5m0P", "hQTSwUfzNWq7WJEWUMsY", "ISbEYuoUfDCqh1iW3LNE", "SPFaWSjtsQepqTFNGTmI"],
-    "counter": ["BQFI2onRw6dRrTOCapRT", "fIHthWDxcztM0zTMOhij", "0WcMK4rNquc9prJFGeFW", "GvBXVIItXmtEDgtrDJkt"]
+    "whoosh": [
+      "QlZcB0sLOXXSya7ueWto",
+      "SMi3bx29l3r7hvvkn63n",
+      "R47gbNU3VzT60fd32rHy",
+      "KQxDU2aPnfaNuvtSRE66"
+    ],
+    "click": [
+      "5e7WakrCD1wCych7g72L",
+      "FdisKELAkyAAm6GyUgkb",
+      "yfLHzs34SXt7lR1UzMEX",
+      "WNzhCuzHYYPIb18KEzZ7"
+    ],
+    "impact": [
+      "YaKEF1xGl4TrnYPPlSi6",
+      "4L1NEiXe7qnj9F5uAoC1",
+      "5MykzkU0E7ytaxgHfX94",
+      "HSaiD2FQ0AgaCePjQ45a"
+    ],
+    "riser": [
+      "mc9GKtJsbHTQKJR8Z8SD",
+      "JFjDUbOkuvUyxOp2OclS",
+      "K1yw7iUDgOtfRJj9sv1D",
+      "n5mxlIrsZDajfdeyJEO2"
+    ],
+    "shutter": [
+      "xNGNftTayRK3lA7EZY3R",
+      "3LghXNwfzLW7v1PTmy3j",
+      "YL8SG35ed0skayVbPbcg",
+      "NuGylhdfDeBtsDvpP97P"
+    ],
+    "scan": [
+      "vilhZXCT7dAfcH5h3rvV",
+      "8srizafXgbE2UqdtuOyL",
+      "1DMypKgloeS838jwIjCx",
+      "nIxBhllNZLQ9rwmvEZxg"
+    ],
+    "success": [
+      "rIQLqVIdP25Qc0bUbvue",
+      "cDLjR7KpoEwj1t63RrQs",
+      "1UAL8XsnnFGqT7ZSLvVn",
+      "voB2pfRlpyaTsP26TxxT"
+    ],
+    "alert": [
+      "zXy3OgrQB5N457E3zu6x",
+      "x4sIpuoA1GwWJosHbqDB",
+      "vmt1BC7Pe9vX3TDr9hXb",
+      "7CyTE5oF5BKWGv44RXHk"
+    ],
+    "typing": [
+      "gH09lFUh6GMVWl9f5m0P",
+      "hQTSwUfzNWq7WJEWUMsY",
+      "ISbEYuoUfDCqh1iW3LNE",
+      "SPFaWSjtsQepqTFNGTmI"
+    ],
+    "counter": [
+      "BQFI2onRw6dRrTOCapRT",
+      "fIHthWDxcztM0zTMOhij",
+      "0WcMK4rNquc9prJFGeFW",
+      "GvBXVIItXmtEDgtrDJkt"
+    ]
+  },
+  "used": {
+    "music": 2,
+    "music_cut": "78.9:80.775",
+    "why_music": "take 2 has the clearest 15 s build into its drop; starting it 2.6 s in puts the drop on the logo at 12.4 s, and taking one bar (128 BPM) out of the breakdown puts the second drop on the 9/9 at 85.27 s",
+    "sfx": {
+      "whoosh": 3,
+      "click": 3,
+      "impact": 3,
+      "riser": 4,
+      "shutter": 4,
+      "scan": 1,
+      "success": 2,
+      "alert": 2,
+      "typing": 3,
+      "counter": 3
+    },
+    "mix": "python3 mix.py AUDIO_DIR mix.wav --music 2 --cut 78.9:80.775 --pick whoosh=3,click=3,impact=3,riser=4,shutter=4,scan=1,success=2,alert=2,typing=3,counter=3"
   }
 }

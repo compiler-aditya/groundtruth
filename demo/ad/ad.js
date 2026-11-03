@@ -139,11 +139,12 @@ scene(4.5, 12.4, (r) => {
   css(r._red, { opacity: P(t, 11.25, 11.4) * (1 - P(t, 11.85, 12.2)) * (0.6 + g * 0.4) });
   css(r.root, { transform: `scale(${1 - E.in(P(t, 11.9, 12.4)) * 0.9})`, opacity: 1 - P(t, 12.15, 12.4), filter: t > 11.25 && t < 11.55 ? `hue-rotate(${Math.sin(t * 70) * 20}deg)` : "none" });
 });
-sfx(7.2, "click"); sfx(8.36, "click"); sfx(9.04, "click"); sfx(9.95, "whoosh", 0.6); sfx(11.25, "alert"); sfx(10.45, "riser", 0.7);
+sfx(7.2, "click"); sfx(8.36, "click"); sfx(9.04, "click"); sfx(9.95, "whoosh", 0.6); sfx(11.25, "alert"); sfx(11.35, "riser", 0.7);
 
 /* ---------------- 2 · logo sting (the music drops here) ---------------- */
 vo(12.9, "A3");
 flash(12.4, 0.85);
+flash(85.27, 0.3);
 scene(12.4, 16.8, (r) => {
   r._logo = h("div", "abs", LOGO(300), r, { left: "560px", top: "300px", width: "300px", height: "300px" });
   r._word = h("div", "abs", "GroundTruth".split("").map((c) => `<span class="w">${c}</span>`).join(""), r, { left: "900px", top: "360px", font: "700 150px/1 var(--disp)", letterSpacing: "-.05em" });
@@ -292,7 +293,7 @@ act(33.6, "vt-hero2", `document.querySelector('[data-hs="1"]').click()`);
 act(36.85, "vt-hero2", `document.querySelector('[data-hs="2"]').click()`);
 act(38.0, "vt-studio", `document.querySelector('[data-mode="simulate"]').click()`);
 act(38.4, "vt-studio", `document.querySelector('[data-pact="sim-walk"]')?.click()`);
-sfx(33.85, "scan", 0.4); sfx(36.9, "whoosh", 0.6); sfx(38.05, "whoosh", 0.8); at4().forEach((x) => sfx(x + 0.05, "counter", 0.45)); sfx(41.3, "impact", 0.5); sfx(43.05, "whoosh", 0.5); sfx(45.0, "success", 0.8); sfx(45.6, "riser", 0.9);
+sfx(33.85, "scan", 0.4); sfx(36.9, "whoosh", 0.6); sfx(38.05, "whoosh", 0.8); at4().forEach((x) => sfx(x + 0.05, "counter", 0.45)); sfx(41.3, "impact", 0.5); sfx(43.05, "whoosh", 0.5); sfx(45.0, "success", 0.8); sfx(46.55, "riser", 0.9);
 function at4() { return [38.6, 39.3, 40.05, 40.75]; }
 
 /* ---------------- 5 · prove it ----------------
@@ -493,13 +494,17 @@ scene(84.4, 94.4, (r) => {
   css(r._ruler, { transform: `scaleX(${E.out(P(t, 84.4, 85.0))})`, opacity: 1 - P(t, 89.6, 90.0) });
   r._s.forEach((s, k) => {
     pop(s, t, [84.65, 86.3, 88.4][k], { from: 0.6, dy: 60, t1: 89.65 });
-    if (k === 0) $(".v", s).textContent = `${Math.round(9 * E.out(P(t, 84.65, 85.6)))}/9`;
+    if (k === 0) {
+      $(".v", s).textContent = `${Math.round(9 * E.out(P(t, 84.65, 85.27)))}/9`;
+      const hit = t >= 85.27 ? Math.exp(-(t - 85.27) * 7) : 0; // the music's second drop
+      css($(".v", s), { transform: `scale(${1 + hit * 0.12})`, transformOrigin: "0 80%", color: hit > 0.05 ? "#ff7a3d" : "#f5f3ee" });
+    }
   });
   pop(r._lock, t, 90.05, { from: 0.7, d: 0.55, dy: 40 });
   r._tag._w.forEach((s, i) => { const t0 = [91.16, 91.5, 92.04, 92.26, 92.42, 92.84, 93.2][i] ?? 93.2; const q = E.back(P(t, t0, t0 + 0.35)); css(s, { opacity: P(t, t0, t0 + 0.15), transform: `translateY(${(1 - q) * 50}px)` }); });
   css(r.root, { opacity: 1 - P(t, 94.1, 94.4) });
 });
-sfx(84.65, "counter", 0.8); sfx(86.3, "success", 0.6); sfx(88.4, "impact", 0.4); sfx(90.05, "impact", 0.7); sfx(92.84, "click", 0.6);
+sfx(84.65, "counter", 0.8); sfx(85.27, "impact", 0.55); sfx(86.3, "success", 0.6); sfx(88.4, "impact", 0.4); sfx(90.05, "impact", 0.7); sfx(92.84, "click", 0.6);
 
 /* ---------------- 10 · end card ---------------- */
 scene(94.4, 100.5, (r) => {
