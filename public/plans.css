@@ -25,7 +25,7 @@ body.app .pe { height: 100vh; height: 100dvh; }
 .pe-status.busy i { background: var(--faint); animation: pulse 1.6s infinite; }
 .pe-status.bad i { background: var(--rfi); }
 .pe-status .more { display: none; }
-@media (min-width: 1360px) { .pe-status .more { display: inline; } }
+@media (min-width: 1360px) { .pe-status .more { display: inline; white-space: pre; } } /* pre keeps the space after the first word, which a flex item would drop */
 .pe-body { flex: 1; display: grid; grid-template-columns: 208px minmax(0, 1fr) 380px; min-height: 0; }
 .pe-left { border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto; display: flex; flex-direction: column; }
 .pe-tools { padding: 10px 10px 12px; border-bottom: 1px solid var(--line); }
