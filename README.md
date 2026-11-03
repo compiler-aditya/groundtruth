@@ -1,3 +1,5 @@
+<img src="public/logo.svg" width="64" height="64" alt="GroundTruth logo">
+
 # GroundTruth
 
 **An agent that checks a construction site against its design package, with evidence, using Meta's models.**
